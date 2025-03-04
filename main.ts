@@ -39,9 +39,9 @@ export default class SmoothCursorPlugin extends Plugin {
 	observer: MutationObserver | null = null;
 
 	style: HTMLStyleElement;
-	canvas: HTMLCanvasElement;
+	canvas: HTMLCanvasElement | null;
 
-	cursor: HTMLElement;
+	cursor: HTMLElement | null;
 	endOffset: any;
 	endContainerRangeRect: any;
 
@@ -53,14 +53,20 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	delayTimer: any;
 
-	trails: { x: number, y: number, alpha: number, width: number }[] = [];
-
 	rectangle: { x: number, y: number, dirX: number, dirY: number, extTarget: number, extOrigin: number } =
 		{ x: 0, y: 0, dirX: 0, dirY: 0, extTarget: 0, extOrigin: 0 };
 
 	trailCount: number;
 
 	isScroll: boolean = false;
+
+	isStyleInit: boolean = false;
+
+	isInited: boolean = false;
+
+	isAnimationInit: boolean = false;
+
+	isFirstTrail: boolean = true;
 
 	async onload() {
 
@@ -70,14 +76,27 @@ export default class SmoothCursorPlugin extends Plugin {
 		this.addSettingTab(new SmoothCursorSettingTab(this.app, this))
 
 		this.app.workspace.onLayoutReady(() => {
+
+			this.app.workspace.on("file-open", (file) => {
+				if (file === null) {
+					this.isInited = false;
+					this.isFirstTrail = true;
+					this.cursor = null;
+					this.canvas = null;
+					this.trailCount = 0;
+				} else if (!this.isInited) {
+					this.init();
+				}
+			});
+
 			this.init();
 		});
 	}
 
 	onunload() {
-		this.cursor.remove();
+		this.cursor?.remove();
 		this.style.remove();
-		this.canvas.remove();
+		this.canvas?.remove();
 
 		this.stopObserving();
 
@@ -85,43 +104,54 @@ export default class SmoothCursorPlugin extends Plugin {
 	}
 
 	init() {
+
 		this.editorDom = document.querySelector('.cm-editor') as HTMLElement;
+
+		if (!this.editorDom) {
+			console.log("未打开文档");
+			return;
+		}
+
+		this.isInited = true;
 
 		// 创建一个自定义光标
 		this.cursor = document.createElement("div");
 		this.cursor.id = "custom-cursor";
 		this.editorDom.appendChild(this.cursor);
 
-		// 设置光标样式
-		this.style = document.createElement("style");
-		this.style.innerHTML = `
-		#custom-cursor {
-			position: absolute;
-            width: 3px;
-            height: 20px;
-            background-color: ${this.setting.cursorColor};
-            pointer-events: none;
-            left: 0;
-            top: 0;
-            transition: all 0.08s ease-out;
-			display: none;
-			animation: blink ${this.setting.blinkSpeed}s infinite;
-		}
-		body{
-			--caret-color: transparent !important;
-		}
+		if (!this.isStyleInit) {
+			this.isStyleInit = true;
+			// 设置光标样式
+			this.style = document.createElement("style");
+			this.style.innerHTML = `
+			#custom-cursor {
+				position: absolute;
+				width: 3px;
+				height: 20px;
+				background-color: ${this.setting.cursorColor};
+				pointer-events: none;
+				left: 0;
+				top: 0;
+				transition: all 0.08s ease-out;
+				display: none;
+				animation: blink ${this.setting.blinkSpeed}s infinite;
+			}
+			body{
+				--caret-color: transparent !important;
+			}
 
-		/* 定义 @keyframes 动画 */
-		@keyframes blink {
-			0%, 100% {
-				opacity: 1;
+			/* 定义 @keyframes 动画 */
+			@keyframes blink {
+				0%, 100% {
+					opacity: 1;
+				}
+				50% {
+					opacity: 0.05;
+				}
 			}
-			50% {
-				opacity: 0.05;
-			}
+			`;
+			document.head.appendChild(this.style);
 		}
-		`;
-		document.head.appendChild(this.style);
 
 		this.createTrail();
 
@@ -188,9 +218,9 @@ export default class SmoothCursorPlugin extends Plugin {
 			this.updateCursor();
 		});
 
-		let scroller = document.querySelector('.cm-scroller');
+		// let scroller = document.querySelector('.cm-scroller');
 
-		this.registerDomEvent(scroller as HTMLElement, "scroll", () => {
+		this.registerDomEvent(this.editorDom, "scroll", () => {
 			this.isScroll = true;
 			this.updateCursor();
 		});
@@ -202,6 +232,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 
 	updateCursor() {
+		if (!this.cursor) return;
 		// console.trace('Calling stack trace');
 		let pos = this.getCursorPosition();
 
@@ -229,7 +260,7 @@ export default class SmoothCursorPlugin extends Plugin {
 		} else if (!this.setting.enableTrail) {
 			this.cursor.style.animation = "none";
 			setTimeout(() => {
-				this.cursor.style.animation = `blink ${this.setting.blinkSpeed}s infinite`;
+				this.cursor && (this.cursor.style.animation = `blink ${this.setting.blinkSpeed}s infinite`);
 			}, 80);
 		}
 
@@ -364,13 +395,13 @@ export default class SmoothCursorPlugin extends Plugin {
 		this.canvas = document.createElement("canvas") as HTMLCanvasElement;
 		this.canvas.id = "trail-canvas";
 
-		let editorDom = document.querySelector('.cm-editor') as HTMLElement;
-		editorDom.appendChild(this.canvas);
+		// let editorDom = document.querySelector('.cm-editor') as HTMLElement;
+		this.editorDom.appendChild(this.canvas);
 
 		const ctx = this.canvas.getContext("2d");
 
-		this.canvas.width = editorDom.innerWidth;
-		this.canvas.height = editorDom.innerHeight;
+		this.canvas.width = this.editorDom.innerWidth;
+		this.canvas.height = this.editorDom.innerHeight;
 		this.canvas.style.position = "absolute";
 		this.canvas.style.top = "0";
 		this.canvas.style.left = "0";
@@ -379,10 +410,10 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		// 绘制拖尾
 		function drawTrail() {
-			if (ctx === null)
+			if (self.canvas === null || ctx === null)
 				return;
 
-			if (self.trailCount <= 0) {
+			if (self.cursor && self.trailCount <= 0) {
 				ctx.clearRect(0, 0, self.canvas.width, self.canvas.height);
 				self.cursor.style.display = "block";
 				return;
@@ -434,6 +465,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		// 动画循环
 		function animate() {
+			if (self.canvas === null) return;
 			drawTrail(); // 绘制拖尾
 			requestAnimationFrame(animate); // 继续动画
 		}
@@ -443,12 +475,23 @@ export default class SmoothCursorPlugin extends Plugin {
 		// 	self.updateTrail(e.clientX, e.clientY); // 更新拖尾点
 		// });
 
+		// if (!this.isAnimationInit) {
+		// 	this.isAnimationInit = true;
+		// }
 		animate(); // 启动动画循环
 	}
 
 
 
 	updateTrail(lastX: number, lastY: number, x: number, y: number, widthTarget: number, widthOrigin: number) {
+		if (this.cursor === null) return;
+
+		if (this.isFirstTrail) {
+			this.isFirstTrail = false;
+			this.cursor.style.display = "block";
+			return;
+		}
+
 		let dx = x - lastX;
 		let dy = y - lastY;
 		this.rectangle.x = x;
@@ -473,6 +516,7 @@ export default class SmoothCursorPlugin extends Plugin {
 	}
 
 	updateSetting() {
+		if (!this.cursor) return;
 		this.cursor.style.backgroundColor = this.setting.cursorColor;
 		this.cursor.style.animationDuration = `${this.setting.blinkSpeed}s`;
 	}
