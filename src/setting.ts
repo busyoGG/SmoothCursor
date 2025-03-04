@@ -1,4 +1,4 @@
-import SmoothCursorPlugin from "./main";
+import SmoothCursorPlugin from "src/main";
 import { App, PluginSettingTab, Setting } from "obsidian";
 
 export class SmoothCursorSettingTab extends PluginSettingTab {

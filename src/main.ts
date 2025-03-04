@@ -1,5 +1,5 @@
 import { Plugin } from 'obsidian';
-import { SmoothCursorSettingTab } from 'setting';
+import { SmoothCursorSettingTab } from 'src/setting';
 
 // Remember to rename these classes and interfaces!
 
