@@ -19,3 +19,25 @@
 ## 演示
 
 ![](SmoothCursor.gif)
+
+# Smooth Cursor
+
+## Introduction
+
+Smooth Cursor is an Obsidian plugin that makes your cursor move smoothly instead of jumping abruptly to the target position.
+
+This plugin supports cursor trails, displaying a motion trail as the cursor moves.
+
+You can enable or disable the trail effect as needed.
+
+## Customizable Settings
+
+* Cursor color
+* Cursor blink speed
+* Toggle trail effect
+* Trail color
+* Trail speed
+
+## Demo
+
+![](SmoothCursor.gif)
