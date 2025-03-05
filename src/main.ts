@@ -1,7 +1,8 @@
-import { Plugin } from 'obsidian';
+import { normalizePath, Plugin } from 'obsidian';
 import { SmoothCursorSettingTab } from 'src/setting';
 
-// Remember to rename these classes and interfaces!
+const fs = require('fs');
+const path = require('path');
 
 interface SmoothCursorPluginSettings {
 	/** 拖尾步数，越大越慢 */
@@ -68,8 +69,11 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	isFirstTrail: boolean = true;
 
+	filePath: string;
+
 	async onload() {
 
+		this.filePath = normalizePath(path.join((this.app.vault.adapter as any).basePath, '.obsidian/plugins/SmoothCursor/styles.css'));  // CSS 文件路径
 		// 设置默认设置
 		await this.loadSettings();
 
@@ -115,43 +119,9 @@ export default class SmoothCursorPlugin extends Plugin {
 		this.isInited = true;
 
 		// 创建一个自定义光标
-		this.cursor = document.createElement("div");
-		this.cursor.id = "custom-cursor";
+		this.cursor = this.app.workspace.containerEl.createDiv({ cls: "smooth-cursor-busyo" });
+		this.cursor.id = "smooth-cursor-busyo";
 		this.editorDom.appendChild(this.cursor);
-
-		if (!this.isStyleInit) {
-			this.isStyleInit = true;
-			// 设置光标样式
-			this.style = document.createElement("style");
-			this.style.innerHTML = `
-			#custom-cursor {
-				position: absolute;
-				width: 3px;
-				height: 20px;
-				background-color: ${this.setting.cursorColor};
-				pointer-events: none;
-				left: 0;
-				top: 0;
-				transition: all 0.08s ease-out;
-				display: none;
-				animation: blink ${this.setting.blinkSpeed}s infinite;
-			}
-			body{
-				--caret-color: transparent !important;
-			}
-
-			/* 定义 @keyframes 动画 */
-			@keyframes blink {
-				0%, 100% {
-					opacity: 1;
-				}
-				50% {
-					opacity: 0.05;
-				}
-			}
-			`;
-			document.head.appendChild(this.style);
-		}
 
 		this.createTrail();
 
@@ -509,6 +479,37 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	async loadSettings() {
 		this.setting = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+
+		//从styles文件读取css变量，防止用户手动修改css文件之后不生效
+		fs.readFile(this.filePath, 'utf8', (err: any, data: any) => {
+			if (err) {
+				console.error('读取文件失败:', err);
+				return;
+			}
+			// console.log('文件内容:', data);
+
+			// 正则表达式分别匹配 --cursor-color 和 --cursor-blink-speed 的值
+			const colorRegex = /--cursor-color:\s*([^;]+);/;
+			const blinkSpeedRegex = /--cursor-blink-speed:\s*([^;]+);/;
+
+			// 获取匹配结果
+			const colorMatch = colorRegex.exec(data);
+			const blinkSpeedMatch = blinkSpeedRegex.exec(data);
+
+			// 第一个匹配项
+			if (colorMatch && colorMatch[1]) {
+				// --cursor-color 的值
+				this.setting.cursorColor = colorMatch[1];
+			}
+			if (blinkSpeedMatch && blinkSpeedMatch[1]) {
+				// --cursor-blink-speed 的值
+				this.setting.blinkSpeed = Number(blinkSpeedMatch[1]);
+			}
+
+			console.log('读取设置成功:', this.setting, colorMatch, blinkSpeedMatch);
+
+			this.saveSettings();
+		});
 	}
 
 	async saveSettings() {
@@ -517,7 +518,59 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	updateSetting() {
 		if (!this.cursor) return;
-		this.cursor.style.backgroundColor = this.setting.cursorColor;
-		this.cursor.style.animationDuration = `${this.setting.blinkSpeed}s`;
+		// this.cursor.style.backgroundColor = this.setting.cursorColor;
+		// this.cursor.style.animationDuration = `${this.setting.blinkSpeed}s`;
+		this.modifyCSS();
+	}
+
+	async modifyCSS() {
+		this.filePath = normalizePath(path.join((this.app.vault.adapter as any).basePath, '.obsidian/plugins/SmoothCursor/styles.css'));  // CSS 文件路径
+
+		// 读取文件
+		fs.readFile(this.filePath, 'utf8', (err: any, data: any) => {
+			if (err) {
+				console.error('读取文件失败:', err);
+				return;
+			}
+			// console.log('文件内容:', data);
+
+			// 修改内容（在这里，你可以进行任何修改）
+			let content = data.replace(/(--cursor-color:\s*[^;]+;)/, `--cursor-color: ${this.setting.cursorColor};`);
+			content = content.replace(/(--cursor-blink-speed:\s*[^;]+;)/, `--cursor-blink-speed: ${this.setting.blinkSpeed};`);
+
+			// 保存修改
+			fs.writeFile(this.filePath, content, 'utf8', (err: any) => {
+				if (err) {
+					console.error('写入文件失败:', err);
+					return;
+				}
+				// console.log('CSS 文件已修改');
+
+				// 刷新css
+
+				// 获取所有的 style 标签
+				const styles = document.querySelectorAll('style');
+
+				// 要查找的特定 CSS 规则（例如，查找包含 'color' 的规则）
+				const ruleName = 'smooth-cursor-busyo';
+
+				// 存储含有特定 CSS 规则的 style 标签
+				let matchingStyles: HTMLStyleElement[] = [];
+
+				styles.forEach(style => {
+					const cssText = style.innerHTML;
+
+					// 检查 CSS 内容是否包含特定的规则
+					if (cssText.includes(ruleName)) {
+						matchingStyles.push(style);
+					}
+				});
+
+				// 遍历匹配的 style 标签，修改其内容
+				matchingStyles.forEach(style => {
+					style.textContent = content;
+				});
+			});
+		});
 	}
 }
