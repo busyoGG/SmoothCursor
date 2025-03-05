@@ -39,7 +39,6 @@ export default class SmoothCursorPlugin extends Plugin {
 	editorDom: HTMLElement;
 	observer: MutationObserver | null = null;
 
-	style: HTMLStyleElement;
 	canvas: HTMLCanvasElement | null;
 
 	cursor: HTMLElement | null;
@@ -61,11 +60,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	isScroll: boolean = false;
 
-	isStyleInit: boolean = false;
-
 	isInited: boolean = false;
-
-	isAnimationInit: boolean = false;
 
 	isFirstTrail: boolean = true;
 
@@ -99,7 +94,6 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	onunload() {
 		this.cursor?.remove();
-		this.style.remove();
 		this.canvas?.remove();
 
 		this.stopObserving();
@@ -440,14 +434,6 @@ export default class SmoothCursorPlugin extends Plugin {
 			requestAnimationFrame(animate); // 继续动画
 		}
 
-		// // 监听鼠标事件
-		// this.registerDomEvent(document, "mousemove", (e) => {
-		// 	self.updateTrail(e.clientX, e.clientY); // 更新拖尾点
-		// });
-
-		// if (!this.isAnimationInit) {
-		// 	this.isAnimationInit = true;
-		// }
 		animate(); // 启动动画循环
 	}
 
