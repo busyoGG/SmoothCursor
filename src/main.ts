@@ -64,6 +64,8 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	isFirstTrail: boolean = true;
 
+	isSpanChange: boolean = false;
+
 	filePath: string;
 
 	async onload() {
@@ -106,7 +108,7 @@ export default class SmoothCursorPlugin extends Plugin {
 		this.editorDom = document.querySelector('.cm-editor') as HTMLElement;
 
 		if (!this.editorDom) {
-			console.log("未打开文档");
+			console.error("未打开文档");
 			return;
 		}
 
@@ -123,29 +125,31 @@ export default class SmoothCursorPlugin extends Plugin {
 			this.cursor.style.display = "block";
 		}
 
-		this.registerDomEvent(this.editorDom, "mousedown", () => {
+		this.registerDomEvent(this.editorDom, "mousedown", (event) => {
 
 			this.isMouseDown = true;
 			//给点延迟，用于等待界面变化
-			this.delayTimer = setTimeout(() => {
+			// this.delayTimer = setTimeout(() => {
 
-				const selection = this.editorDom.ownerDocument.getSelection();
-				if (selection && selection.rangeCount > 0) {
-					const range = selection.getRangeAt(0);
+			const selection = this.editorDom.ownerDocument.getSelection();
+			if (selection && selection.rangeCount > 0) {
+				const range = selection.getRangeAt(0);
 
-					this.endOffset = range.endOffset;
+				this.endOffset = range.endOffset;
 
-					let endContainerRange = range.cloneRange();
-					endContainerRange.setStart(range.endContainer, range.endOffset);
-					endContainerRange.setEnd(range.endContainer, range.endOffset);
+				let endContainerRange = range.cloneRange();
+				endContainerRange.setStart(range.endContainer, range.endOffset);
+				endContainerRange.setEnd(range.endContainer, range.endOffset);
 
-					this.endContainerRangeRect = endContainerRange.getClientRects()[0];
-					if (!this.endContainerRangeRect) {
-						this.endContainerRangeRect = (range.endContainer as Element).getBoundingClientRect();
-					}
+				this.endContainerRangeRect = endContainerRange.getClientRects()[0];
+				if (!this.endContainerRangeRect) {
+					this.endContainerRangeRect = (range.endContainer as Element).getBoundingClientRect();
 				}
-				this.updateCursor();
-			}, 100);
+			}
+
+			this.updateCursor();
+
+			// }, 100);
 		});
 
 		this.registerDomEvent(this.editorDom, "mousemove", (evt) => {
@@ -164,11 +168,15 @@ export default class SmoothCursorPlugin extends Plugin {
 		});
 
 		this.registerDomEvent(this.editorDom, "keydown", () => {
-			this.updateCursor();
+			if (!this.isDomChanged) {
+				this.updateCursor();
+			}
 		});
 
 		this.registerDomEvent(this.editorDom, "keyup", () => {
-			this.updateCursor();
+			if (!this.isDomChanged) {
+				this.updateCursor();
+			}
 		});
 
 		this.app.workspace.on("resize", () => {
@@ -184,7 +192,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		// let scroller = document.querySelector('.cm-scroller');
 
-		this.registerDomEvent(this.editorDom, "scroll", () => {
+		this.registerDomEvent(this.editorDom.querySelector(".cm-scroller") as HTMLElement, "scroll", () => {
 			this.isScroll = true;
 			this.updateCursor();
 		});
@@ -195,10 +203,15 @@ export default class SmoothCursorPlugin extends Plugin {
 	}
 
 
-	updateCursor() {
+	updateCursor(inputPos: { x: number, y: number, height: number } | null = null) {
 		if (!this.cursor) return;
 		// console.trace('Calling stack trace');
-		let pos = this.getCursorPosition();
+		let pos;
+		if (inputPos) {
+			pos = inputPos;
+		} else {
+			pos = this.getCursorPosition();
+		}
 
 		const scrollX = window.scrollX || document.documentElement.scrollLeft;
 		const scrollY = window.scrollY || document.documentElement.scrollTop;
@@ -230,8 +243,43 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		this.lastPos = pos;
 
+
+		if (this.isDomChanged && !this.isMouseMove && this.isSpanChange) {
+			// const sel = window.getSelection();
+			// if (sel && sel.rangeCount > 0) {
+			// 	sel.modify("move", "backward", "character"); // 向左移动一位
+			// 	sel.modify("move", "forward", "character"); // 向右移动一位
+			// }
+
+			const sel = window.getSelection();
+			if (sel && sel.rangeCount > 0) {
+				const range = sel.getRangeAt(0); // 获取当前选区
+				const startContainer = range.startContainer;
+				const endContainer = range.endContainer;
+
+				// 判断前面是否有内容
+				const canMoveBackward = (startContainer.textContent as string).length > 0 && range.startOffset > 0;
+				// 判断后面是否有内容
+				const canMoveForward = (endContainer.textContent as string).length > 0 && range.endOffset < (endContainer.textContent as string).length;
+
+				if (canMoveBackward) {
+					// 如果前面有内容，先向后移一位
+					(sel as any).modify("move", "backward", "character");
+					// 然后再向前移一位
+					(sel as any).modify("move", "forward", "character");
+				} else if (canMoveForward) {
+					// 如果后面有内容，先向前移一位
+					(sel as any).modify("move", "forward", "character");
+					// 然后再向后移一位
+					(sel as any).modify("move", "backward", "character");
+				}
+			}
+		}
+
 		// this.isResize = false;
 		this.isScroll = false;
+		this.isDomChanged = false;
+		this.isSpanChange = false;
 	}
 
 	// 获取当前光标位置的函数
@@ -249,7 +297,7 @@ export default class SmoothCursorPlugin extends Plugin {
 			if (!this.isMouseMove && !this.isDomChanged) {
 				range.setStart(endContainer, range.endOffset);
 				range.setEnd(endContainer, range.endOffset);
-				// console.log("非选择，非DOM变化", this.isMouseMove, this.isDomChanged);
+				// console.log("非选择，非DOM变化", endContainer, this.endContainerRangeRect);
 			} else if (this.endContainerRangeRect) {
 				let rangeClone = range.cloneRange();
 				rangeClone.setStart(endContainer, range.endOffset);
@@ -263,7 +311,7 @@ export default class SmoothCursorPlugin extends Plugin {
 				if (rangeCloneRect.top > this.endContainerRangeRect.top) {
 					range.setStart(endContainer, range.endOffset);
 					range.setEnd(endContainer, range.endOffset);
-					// console.log('下行', rangeCloneRect.top, this.endContainerRangeRect.top);
+					// console.log('下行', endContainer, rangeCloneRect.top, this.endContainerRangeRect.top);
 				} else {
 
 					rangeClone.setStart(startContainer, range.startOffset);
@@ -271,24 +319,24 @@ export default class SmoothCursorPlugin extends Plugin {
 
 					rangeCloneRect = rangeClone.getClientRects()[0];
 					if (!rangeCloneRect) {
-						rangeCloneRect = rangeClone.getBoundingClientRect();
+						rangeCloneRect = startContainer.getBoundingClientRect();
 					}
 
 					if (rangeCloneRect.top < this.endContainerRangeRect.top) {
 						range.setStart(startContainer, range.startOffset);
 						range.setEnd(startContainer, range.startOffset);
-						// console.log('上行', rangeCloneRect.top, this.endContainerRangeRect.top);
+						// console.log('上行', startContainer, rangeCloneRect.top, this.endContainerRangeRect.top);
 					} else {
-						if (range.endOffset > this.endOffset) {
+						if (rangeClone.endOffset > this.endOffset) {
 							let endContainerLength = endContainer.textContent ? endContainer.textContent.length : 0;
-							let offset = endContainerLength > range.endOffset ? range.endOffset : endContainerLength;
+							let offset = endContainerLength > rangeClone.endOffset ? rangeClone.endOffset : endContainerLength;
 							range.setStart(endContainer, offset);
 							range.setEnd(endContainer, offset);
-							// console.log('同行', range.endOffset, this.endOffset);
+							// console.log('同行1', rangeClone.endOffset, this.endOffset, offset);
 						} else {
-							range.setStart(startContainer, range.startOffset);
-							range.setEnd(startContainer, range.startOffset);
-							// console.log('同行', range.endOffset, this.endOffset);
+							range.setStart(startContainer, rangeClone.startOffset);
+							range.setEnd(startContainer, rangeClone.startOffset);
+							// console.log('同行2', rangeClone.endOffset, this.endOffset);
 						}
 					}
 				}
@@ -325,15 +373,41 @@ export default class SmoothCursorPlugin extends Plugin {
 
 			for (const mutation of mutations) {
 				if (mutation.type === 'childList') {
-					changed = true;
-					break; // 只要检测到增删，就退出循环
+
+					// if (mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0) {
+					// 	changed = true;
+					// 	break; // 只要检测到增删，就退出循环
+					// }
+
+					for (let i = 0; i < mutation.addedNodes.length; i++) {
+						if (mutation.addedNodes[i].nodeName != "BR") {
+							changed = true;
+							// break;
+							if (mutation.addedNodes[i].nodeName == "SPAN") {
+								this.isSpanChange = true;
+							}
+						}
+					}
+
+					for (let i = 0; i < mutation.removedNodes.length; i++) {
+						if (mutation.removedNodes[i].nodeName != "BR") {
+							changed = true;
+							// break;
+							if (mutation.removedNodes[i].nodeName == "SPAN") {
+								this.isSpanChange = true;
+							}
+						}
+					}
 				}
 			}
 
 			if (changed) {
 				this.isDomChanged = true;
-				this.updateCursor();
-				this.isDomChanged = false;
+				// setTimeout(() => {
+				// }, 80);
+				this.delayedFrames(() => {
+					this.updateCursor();
+				});
 			}
 		});
 
@@ -350,6 +424,25 @@ export default class SmoothCursorPlugin extends Plugin {
 			this.observer.disconnect();
 			this.observer = null;
 		}
+	}
+
+	delayedFrames(callback: Function, delay: number = 2) {
+		let frameCount = 0;
+		function run() {
+			// 增加帧计数
+			frameCount++;
+
+			// 如果已经过了两帧，则执行目标操作
+			if (frameCount === delay) {
+				callback();
+			} else {
+				// 否则继续请求下一帧
+				requestAnimationFrame(run);
+			}
+		}
+
+		// 开始请求第一帧
+		requestAnimationFrame(run);
 	}
 
 	/** 创建canvas */
@@ -492,7 +585,7 @@ export default class SmoothCursorPlugin extends Plugin {
 				this.setting.blinkSpeed = Number(blinkSpeedMatch[1]);
 			}
 
-			console.log('读取设置成功:', this.setting, colorMatch, blinkSpeedMatch);
+			// console.log('读取设置成功:', this.setting, colorMatch, blinkSpeedMatch);
 
 			this.saveSettings();
 		});
