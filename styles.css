@@ -16,7 +16,7 @@ custom styles for smooth-cursor
     display: none;
     animation: blink calc(var(--cursor-blink-speed) * 1s) infinite;
 
-    --cursor-color: #c7dfff;
+    --cursor-color: #ffffff;
     --cursor-blink-speed: 1;
     --cursor-x: 0;
     --cursor-y: 0;
