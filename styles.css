@@ -7,17 +7,40 @@ custom styles for smooth-cursor
 .smooth-cursor-busyo {
     position: absolute;
     width: 3px;
-    height: 20px;
     background-color: var(--cursor-color);
     pointer-events: none;
-    left: 0;
-    top: 0;
+    left: calc(var(--cursor-x) * 1px);
+    top: calc(var(--cursor-y) * 1px);
+    height: calc(var(--cursor-height) * 1px);
     transition: all 0.08s ease-out;
     display: none;
     animation: blink calc(var(--cursor-blink-speed) * 1s) infinite;
 
-    --cursor-color: #ffffff;
+    --cursor-color: #c7dfff;
     --cursor-blink-speed: 1;
+    --cursor-x: 0;
+    --cursor-y: 0;
+    --cursor-height: 0;
+}
+
+.smooth-cursor-busyo.noTrans {
+    transition: none;
+}
+
+.smooth-cursor-busyo.show {
+    display: block;
+}
+
+.smooth-cursor-busyo.noAni {
+    animation: none;
+}
+
+.smooth-cursor-busyo-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 0;
 }
 
 body {

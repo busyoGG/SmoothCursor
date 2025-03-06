@@ -1,8 +1,9 @@
 import { normalizePath, Plugin } from 'obsidian';
 import { SmoothCursorSettingTab } from 'src/setting';
 
-const fs = require('fs');
-const path = require('path');
+interface SelectionModify extends Selection {
+	modify(alter?: string, direction?: string, granularity?: string): void;
+}
 
 interface SmoothCursorPluginSettings {
 	/** 拖尾步数，越大越慢 */
@@ -42,16 +43,14 @@ export default class SmoothCursorPlugin extends Plugin {
 	canvas: HTMLCanvasElement | null;
 
 	cursor: HTMLElement | null;
-	endOffset: any;
-	endContainerRangeRect: any;
+	endOffset: number;
+	endContainerRangeRect: DOMRect;
 
 	isMouseMove: boolean = false;
 	isMouseDown: boolean = false;
 	isDomChanged: boolean = false;
 
-	lastPos: any = { x: 0, y: 0, height: 0 };
-
-	delayTimer: any;
+	lastPos: { x: number, y: number, height: number } = { x: 0, y: 0, height: 0 };
 
 	rectangle: { x: number, y: number, dirX: number, dirY: number, extTarget: number, extOrigin: number } =
 		{ x: 0, y: 0, dirX: 0, dirY: 0, extTarget: 0, extOrigin: 0 };
@@ -68,9 +67,14 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	filePath: string;
 
+	customStyle: HTMLStyleElement;
+
 	async onload() {
 
-		this.filePath = normalizePath(path.join((this.app.vault.adapter as any).basePath, '.obsidian/plugins/SmoothCursor/styles.css'));  // CSS 文件路径
+		this.filePath = `${this.app.vault.configDir}/plugins/SmoothCursor/styles.css`;  // CSS 文件路径
+
+		// console.log(this.filePath);
+
 		// 设置默认设置
 		await this.loadSettings();
 
@@ -99,12 +103,9 @@ export default class SmoothCursorPlugin extends Plugin {
 		this.canvas?.remove();
 
 		this.stopObserving();
-
-		// document.documentElement.style.setProperty('--caret-color', 'var(--text-normal)');
 	}
 
 	init() {
-
 		this.editorDom = document.querySelector('.cm-editor') as HTMLElement;
 
 		if (!this.editorDom) {
@@ -119,17 +120,35 @@ export default class SmoothCursorPlugin extends Plugin {
 		this.cursor.id = "smooth-cursor-busyo";
 		this.editorDom.appendChild(this.cursor);
 
+		//延迟10帧，防止在样式加载完成前执行
+		this.delayedFrames(() => {
+			// 获取所有的 style 标签
+			const styles = document.querySelectorAll('style');
+
+			// 要查找的特定 CSS 规则（例如，查找包含 'color' 的规则）
+			const ruleName = 'smooth-cursor-busyo';
+
+			for (let index = 0; index < styles.length; index++) {
+				let style = styles[index];
+				let cssText = style.textContent as string;
+
+				// 检查 CSS 内容是否包含特定的规则
+				if (cssText.includes(ruleName)) {
+					this.customStyle = style;
+					break;
+				}
+			}
+		}, 10);
+
 		this.createTrail();
 
 		if (!this.setting.enableTrail) {
-			this.cursor.style.display = "block";
+			this.cursor.addClass("show");
 		}
 
 		this.registerDomEvent(this.editorDom, "mousedown", (event) => {
 
 			this.isMouseDown = true;
-			//给点延迟，用于等待界面变化
-			// this.delayTimer = setTimeout(() => {
 
 			const selection = this.editorDom.ownerDocument.getSelection();
 			if (selection && selection.rangeCount > 0) {
@@ -148,8 +167,6 @@ export default class SmoothCursorPlugin extends Plugin {
 			}
 
 			this.updateCursor();
-
-			// }, 100);
 		});
 
 		this.registerDomEvent(this.editorDom, "mousemove", (evt) => {
@@ -217,14 +234,19 @@ export default class SmoothCursorPlugin extends Plugin {
 		const scrollY = window.scrollY || document.documentElement.scrollTop;
 
 		if (this.isScroll) {
-			this.cursor.style.transition = "none";
+			this.cursor.addClass("noTrans");
 		} else {
-			this.cursor.style.transition = "all 0.08s ease-out";
+			this.cursor.removeClass("noTrans");
 		}
 
-		this.cursor.style.left = `${pos.x + scrollX}px`;
-		this.cursor.style.top = `${pos.y + scrollY}px`;
-		this.cursor.style.height = `${pos.height}px`;
+		// 修改坐标，该部分样式为自动计算，仅用于坐标变化
+		//change position, the style is automatically calculated and is used only for coordinate changes
+		let content = (this.customStyle.textContent as string).replace(/(--cursor-x:\s*[^;]+;)/, `--cursor-x: ${pos.x + scrollX};`);
+		content = content.replace(/(--cursor-y:\s*[^;]+;)/, `--cursor-y: ${pos.y + scrollY};`);
+		content = content.replace(/(--cursor-height:\s*[^;]+;)/, `--cursor-height: ${pos.height};`);
+
+		this.customStyle.textContent = content;
+
 
 		if (this.setting.enableTrail && !this.isScroll) {
 			if (this.lastPos.x != pos.x || this.lastPos.y != pos.y) {
@@ -232,25 +254,18 @@ export default class SmoothCursorPlugin extends Plugin {
 			}
 		}
 
-		if (this.setting.enableTrail && this.cursor.style.animation === "none") {
-			this.cursor.style.animation = `blink ${this.setting.blinkSpeed}s infinite`;
+		if (this.setting.enableTrail && this.cursor.hasClass("noAni")) {
+			this.cursor.removeClass("noAni");
 		} else if (!this.setting.enableTrail) {
-			this.cursor.style.animation = "none";
+			this.cursor.addClass("noAni");
 			setTimeout(() => {
-				this.cursor && (this.cursor.style.animation = `blink ${this.setting.blinkSpeed}s infinite`);
+				this.cursor?.removeClass("noAni");
 			}, 80);
 		}
 
 		this.lastPos = pos;
 
-
 		if (this.isDomChanged && !this.isMouseMove && this.isSpanChange) {
-			// const sel = window.getSelection();
-			// if (sel && sel.rangeCount > 0) {
-			// 	sel.modify("move", "backward", "character"); // 向左移动一位
-			// 	sel.modify("move", "forward", "character"); // 向右移动一位
-			// }
-
 			const sel = window.getSelection();
 			if (sel && sel.rangeCount > 0) {
 				const range = sel.getRangeAt(0); // 获取当前选区
@@ -264,19 +279,18 @@ export default class SmoothCursorPlugin extends Plugin {
 
 				if (canMoveBackward) {
 					// 如果前面有内容，先向后移一位
-					(sel as any).modify("move", "backward", "character");
+					(sel as SelectionModify).modify("move", "backward", "character");
 					// 然后再向前移一位
-					(sel as any).modify("move", "forward", "character");
+					(sel as SelectionModify).modify("move", "forward", "character");
 				} else if (canMoveForward) {
 					// 如果后面有内容，先向前移一位
-					(sel as any).modify("move", "forward", "character");
+					(sel as SelectionModify).modify("move", "forward", "character");
 					// 然后再向后移一位
-					(sel as any).modify("move", "backward", "character");
+					(sel as SelectionModify).modify("move", "backward", "character");
 				}
 			}
 		}
 
-		// this.isResize = false;
 		this.isScroll = false;
 		this.isDomChanged = false;
 		this.isSpanChange = false;
@@ -290,8 +304,8 @@ export default class SmoothCursorPlugin extends Plugin {
 
 			let range = selection.getRangeAt(0).cloneRange();
 
-			let startContainer = range.startContainer as any;
-			let endContainer = range.endContainer as any;
+			let startContainer = range.startContainer as HTMLElement;
+			let endContainer = range.endContainer as HTMLElement;
 
 			//计算光标位置
 			if (!this.isMouseMove && !this.isDomChanged) {
@@ -344,7 +358,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 			let rect = range.getClientRects()[0];
 			if (!rect) {
-				rect = (range.endContainer as any).getBoundingClientRect();
+				rect = (range.endContainer as HTMLElement).getBoundingClientRect();
 			}
 
 			// console.log(rect, range.startOffset, range.endOffset, endOffset);
@@ -449,21 +463,14 @@ export default class SmoothCursorPlugin extends Plugin {
 	createTrail() {
 		let self = this;
 		// 创建拖尾画布
-		this.canvas = document.createElement("canvas") as HTMLCanvasElement;
-		this.canvas.id = "trail-canvas";
 
-		// let editorDom = document.querySelector('.cm-editor') as HTMLElement;
-		this.editorDom.appendChild(this.canvas);
+		this.canvas = this.editorDom.createEl("canvas", { cls: "smooth-cursor-busyo-canvas" });
+		this.canvas.id = "trail-canvas";
 
 		const ctx = this.canvas.getContext("2d");
 
 		this.canvas.width = this.editorDom.innerWidth;
 		this.canvas.height = this.editorDom.innerHeight;
-		this.canvas.style.position = "absolute";
-		this.canvas.style.top = "0";
-		this.canvas.style.left = "0";
-		this.canvas.style.pointerEvents = "none";
-		this.canvas.style.zIndex = "0";
 
 		// 绘制拖尾
 		function drawTrail() {
@@ -472,7 +479,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 			if (self.cursor && self.trailCount <= 0) {
 				ctx.clearRect(0, 0, self.canvas.width, self.canvas.height);
-				self.cursor.style.display = "block";
+				self.cursor.addClass("show");
 				return;
 			}
 
@@ -537,7 +544,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		if (this.isFirstTrail) {
 			this.isFirstTrail = false;
-			this.cursor.style.display = "block";
+			this.cursor.addClass("show");
 			return;
 		}
 
@@ -553,20 +560,14 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		this.trailCount = this.setting.trailStep;
 
-		this.cursor.style.display = "none";
+		this.cursor.removeClass("show");
 	}
 
 	async loadSettings() {
 		this.setting = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 
-		//从styles文件读取css变量，防止用户手动修改css文件之后不生效
-		fs.readFile(this.filePath, 'utf8', (err: any, data: any) => {
-			if (err) {
-				console.error('读取文件失败:', err);
-				return;
-			}
-			// console.log('文件内容:', data);
-
+		this.app.vault.adapter.read(this.filePath).then((data) => {
+			// console.log("Plugin settings:", data);
 			// 正则表达式分别匹配 --cursor-color 和 --cursor-blink-speed 的值
 			const colorRegex = /--cursor-color:\s*([^;]+);/;
 			const blinkSpeedRegex = /--cursor-blink-speed:\s*([^;]+);/;
@@ -588,6 +589,9 @@ export default class SmoothCursorPlugin extends Plugin {
 			// console.log('读取设置成功:', this.setting, colorMatch, blinkSpeedMatch);
 
 			this.saveSettings();
+
+		}).catch((error) => {
+			console.error("Failed to read settings:", error);
 		});
 	}
 
@@ -597,59 +601,23 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	updateSetting() {
 		if (!this.cursor) return;
-		// this.cursor.style.backgroundColor = this.setting.cursorColor;
-		// this.cursor.style.animationDuration = `${this.setting.blinkSpeed}s`;
 		this.modifyCSS();
 	}
 
 	async modifyCSS() {
-		this.filePath = normalizePath(path.join((this.app.vault.adapter as any).basePath, '.obsidian/plugins/SmoothCursor/styles.css'));  // CSS 文件路径
+		let data = await this.app.vault.adapter.read(this.filePath);
 
-		// 读取文件
-		fs.readFile(this.filePath, 'utf8', (err: any, data: any) => {
-			if (err) {
-				console.error('读取文件失败:', err);
-				return;
-			}
-			// console.log('文件内容:', data);
+		if (!data) {
+			console.error('读取文件失败:', this.filePath);
+			return;
+		}
 
-			// 修改内容（在这里，你可以进行任何修改）
-			let content = data.replace(/(--cursor-color:\s*[^;]+;)/, `--cursor-color: ${this.setting.cursorColor};`);
-			content = content.replace(/(--cursor-blink-speed:\s*[^;]+;)/, `--cursor-blink-speed: ${this.setting.blinkSpeed};`);
+		// 修改内容（在这里，你可以进行任何修改）
+		let content = data.replace(/(--cursor-color:\s*[^;]+;)/, `--cursor-color: ${this.setting.cursorColor};`);
+		content = content.replace(/(--cursor-blink-speed:\s*[^;]+;)/, `--cursor-blink-speed: ${this.setting.blinkSpeed};`);
 
-			// 保存修改
-			fs.writeFile(this.filePath, content, 'utf8', (err: any) => {
-				if (err) {
-					console.error('写入文件失败:', err);
-					return;
-				}
-				// console.log('CSS 文件已修改');
+		await this.app.vault.adapter.write(this.filePath, content);
 
-				// 刷新css
-
-				// 获取所有的 style 标签
-				const styles = document.querySelectorAll('style');
-
-				// 要查找的特定 CSS 规则（例如，查找包含 'color' 的规则）
-				const ruleName = 'smooth-cursor-busyo';
-
-				// 存储含有特定 CSS 规则的 style 标签
-				let matchingStyles: HTMLStyleElement[] = [];
-
-				styles.forEach(style => {
-					const cssText = style.innerHTML;
-
-					// 检查 CSS 内容是否包含特定的规则
-					if (cssText.includes(ruleName)) {
-						matchingStyles.push(style);
-					}
-				});
-
-				// 遍历匹配的 style 标签，修改其内容
-				matchingStyles.forEach(style => {
-					style.textContent = content;
-				});
-			});
-		});
+		this.customStyle.textContent = content;
 	}
 }

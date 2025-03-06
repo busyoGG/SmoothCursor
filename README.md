@@ -10,7 +10,7 @@
 
 ## 自定义设置
 
-> 你可以通过设置面板进行自定义，也可以通过修改 'styles.css' 文件进行自定义。
+> 你可以通过设置面板进行自定义，也可以通过修改 'styles.css' 文件进行自定义。css 文件修改需要重启 obsidian 才能生效。
 
 * 光标颜色（设置面板和 css 文件会自动同步）
 * 光标闪烁速度（设置面板和 css 文件会自动同步）
@@ -21,6 +21,11 @@
 ## 演示
 
 ![](SmoothCursor.gif)
+
+## 已知的问题
+
+* dom 元素的增减变化（即此类变化， '**a**' 变为 'a' 或反过来）会导致拖尾刷新，因为 Selection 在该情况下不会自动更新，所以插件进行了光标的左右移动以触发刷新。
+* 光标从表格文件切换到普通文件的时候可能会定位到编辑区最上层，光标动画可能看起来会有点奇怪。
 
 # Smooth Cursor
 
@@ -34,7 +39,7 @@ You can enable or disable the trail effect as needed.
 
 ## Customizable Settings
 
-> You can customize it through the settings panel, or by modifying the 'styles.css' file.
+> You can customize it through the settings panel, or by modifying the 'styles.css' file.Css file modifications require a restart of Obsidian.
 
 * Cursor color (the settings panel and the CSS file will automatically sync)
 * Cursor blink speed (the settings panel and the CSS file will automatically sync)
@@ -45,3 +50,8 @@ You can enable or disable the trail effect as needed.
 ## Demo
 
 ![](SmoothCursor.gif)
+
+## Known Issues
+
+* DOM element changes (such as '**a**' becoming 'a' or vice versa) will cause the trail to refresh, because the Selection object will not update automatically when the cursor moves. So, the plugin moves the cursor left and right to trigger a refresh.
+* When the cursor switches from a table file to a regular file, it may locate the cursor at the top of the editing area, which may look odd for the cursor animation.
