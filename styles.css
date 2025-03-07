@@ -43,7 +43,7 @@ custom styles for smooth-cursor
     z-index: 0;
 }
 
-body {
+body.caret-hide {
     --caret-color: transparent !important;
 }
 

@@ -1,4 +1,4 @@
-import { normalizePath, Plugin } from 'obsidian';
+import { EditorPosition, MarkdownView, normalizePath, Plugin, View, WorkspaceLeaf } from 'obsidian';
 import { SmoothCursorSettingTab } from 'src/setting';
 
 interface SelectionModify extends Selection {
@@ -39,6 +39,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	editorDom: HTMLElement;
 	observer: MutationObserver | null = null;
+	settingObserver: MutationObserver | null = null;
 
 	canvas: HTMLCanvasElement | null;
 
@@ -68,6 +69,10 @@ export default class SmoothCursorPlugin extends Plugin {
 	filePath: string;
 
 	customStyle: HTMLStyleElement;
+
+	focus: boolean = true;
+
+	closeSettings: boolean = false;
 
 	async onload() {
 
@@ -217,12 +222,32 @@ export default class SmoothCursorPlugin extends Plugin {
 		this.lastPos = this.getCursorPosition();
 
 		this.startObserving();
+
+		//检测不在编辑器内
+		this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
+			// console.log(leaf?.view.getViewType());
+			if (leaf && leaf.view.containerEl.contains(this.editorDom)) {
+				this.focus = true;
+				document.body.addClass("caret-hide");
+				this.cursor?.addClass("show");
+			} else {
+				this.focus = false;
+				document.body.removeClass("caret-hide");
+				this.cursor?.removeClass("show");
+			}
+		}));
+
+		//默认隐藏系统光标
+		document.body.addClass("caret-hide");
 	}
 
 
 	updateCursor(inputPos: { x: number, y: number, height: number } | null = null) {
-		if (!this.cursor) return;
+		if (!this.cursor || !this.customStyle) return;
 		// console.trace('Calling stack trace');
+
+		this.closeSettings = false;
+
 		let pos;
 		if (inputPos) {
 			pos = inputPos;
@@ -425,19 +450,53 @@ export default class SmoothCursorPlugin extends Plugin {
 			}
 		});
 
+		this.settingObserver = new MutationObserver((mutations) => {
+			for (const mutation of mutations) {
+				if (mutation.type === 'childList') {
+
+					for (let i = 0; i < mutation.addedNodes.length; i++) {
+						if (mutation.addedNodes[i].nodeName == "DIV" && (mutation.addedNodes[i] as HTMLDivElement).classList.contains("modal-container")) {
+							// console.log("Obsidian 设置面板（模态框）已打开");
+							this.focus = false;
+							document.body.removeClass("caret-hide");
+							this.cursor?.removeClass("show");
+							break;
+						}
+					}
+
+					for (let i = 0; i < mutation.removedNodes.length; i++) {
+						if (mutation.removedNodes[i].nodeName == "DIV" && (mutation.removedNodes[i] as HTMLDivElement).classList.contains("modal-container")) {
+							// console.log("Obsidian 设置面板（模态框）已关闭");
+							this.focus = true;
+							document.body.addClass("caret-hide");
+							// this.cursor?.addClass("show");
+							this.closeSettings = true;
+							break;
+						}
+					}
+				}
+			}
+		});
+
 		// 监听子元素变化（比如标题的修改）
 		this.observer.observe(root, {
 			childList: true,      // 监听子节点添加/删除
 			subtree: true,        // 监听整个子树
 			// characterData: true,  // 监听文本变化
 		});
+
+		this.settingObserver.observe(document.body, {
+			childList: true,      // 监听子节点添加/删除
+			subtree: true,        // 监听整个子树
+		});
 	}
 
 	stopObserving() {
-		if (this.observer) {
-			this.observer.disconnect();
-			this.observer = null;
-		}
+		this.observer?.disconnect();
+		this.observer = null;
+
+		this.settingObserver?.disconnect();
+		this.settingObserver = null;
 	}
 
 	delayedFrames(callback: Function, delay: number = 2) {
@@ -479,7 +538,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 			if (self.cursor && self.trailCount <= 0) {
 				ctx.clearRect(0, 0, self.canvas.width, self.canvas.height);
-				self.cursor.addClass("show");
+				self.focus && !self.closeSettings && self.cursor.addClass("show");
 				return;
 			}
 
