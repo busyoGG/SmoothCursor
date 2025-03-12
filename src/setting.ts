@@ -43,7 +43,7 @@ export class SmoothCursorSettingTab extends PluginSettingTab {
         //     });
 
         new Setting(containerEl)
-            .setName("拖尾开关 Trail Enable")
+            .setName("拖尾开关 Trail enable")
             .setDesc("是否启用拖尾")
             .addToggle((toggle) =>
                 toggle
@@ -55,7 +55,7 @@ export class SmoothCursorSettingTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
-            .setName("拖尾颜色 Trail Color")
+            .setName("拖尾颜色 Trail color")
             .setDesc("设置拖尾颜色")
             .addColorPicker((text) => {
                 text
@@ -67,8 +67,8 @@ export class SmoothCursorSettingTab extends PluginSettingTab {
             });
 
         new Setting(containerEl)
-            .setName("拖尾速度 Trail Speed")
-            .setDesc("设置拖尾更新次数，越大越慢 More Bigger,More Slower")
+            .setName("拖尾速度 Trail speed")
+            .setDesc("设置拖尾更新次数，越大越慢 More bigger,more slower")
             .addText((text) => {
                 text.inputEl.type = "number";
                 text
