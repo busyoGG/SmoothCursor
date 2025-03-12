@@ -12,22 +12,22 @@ interface SmoothCursorPluginSettings {
 	/** 是否启用拖尾效果 */
 	enableTrail: boolean;
 
-	/** 光标颜色 */
-	cursorColor: string;
+	// /** 光标颜色 */
+	// cursorColor: string;
 
 	/** 拖尾颜色 */
 	trailColor: string;
 
-	/** 光标闪烁速度 */
-	blinkSpeed: number;
+	// /** 光标闪烁速度 */
+	// blinkSpeed: number;
 }
 
 const DEFAULT_SETTINGS: SmoothCursorPluginSettings = {
 	trailStep: 30,
 	enableTrail: true,
-	cursorColor: "#ffffff",
+	// cursorColor: "#ffffff",
 	trailColor: "#78dce8",
-	blinkSpeed: 1
+	// blinkSpeed: 1
 };
 
 export default class SmoothCursorPlugin extends Plugin {
@@ -66,7 +66,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	isSpanChange: boolean = false;
 
-	filePath: string;
+	// filePath: string;
 
 	customStyle: HTMLStyleElement;
 
@@ -76,7 +76,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	async onload() {
 
-		this.filePath = `${this.app.vault.configDir}/plugins/SmoothCursor/styles.css`;  // CSS 文件路径
+		// this.filePath = `${this.app.vault.configDir}/plugins/SmoothCursor/styles.css`;  // CSS 文件路径
 
 		// console.log(this.filePath);
 
@@ -201,7 +201,7 @@ export default class SmoothCursorPlugin extends Plugin {
 			}
 		});
 
-		this.app.workspace.on("resize", () => {
+		this.registerEvent(this.app.workspace.on("resize", () => {
 			// this.isResize = true;
 			if (this.canvas) {
 				this.canvas.width = window.innerWidth;
@@ -210,7 +210,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 			this.isScroll = true;
 			this.updateCursor();
-		});
+		}));
 
 		// let scroller = document.querySelector('.cm-scroller');
 
@@ -625,33 +625,33 @@ export default class SmoothCursorPlugin extends Plugin {
 	async loadSettings() {
 		this.setting = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 
-		this.app.vault.adapter.read(this.filePath).then((data) => {
-			// console.log("Plugin settings:", data);
-			// 正则表达式分别匹配 --cursor-color 和 --cursor-blink-speed 的值
-			const colorRegex = /--cursor-color:\s*([^;]+);/;
-			const blinkSpeedRegex = /--cursor-blink-speed:\s*([^;]+);/;
+		// this.app.vault.adapter.read(this.filePath).then((data) => {
+		// 	// console.log("Plugin settings:", data);
+		// 	// 正则表达式分别匹配 --cursor-color 和 --cursor-blink-speed 的值
+		// 	const colorRegex = /--cursor-color:\s*([^;]+);/;
+		// 	const blinkSpeedRegex = /--cursor-blink-speed:\s*([^;]+);/;
 
-			// 获取匹配结果
-			const colorMatch = colorRegex.exec(data);
-			const blinkSpeedMatch = blinkSpeedRegex.exec(data);
+		// 	// 获取匹配结果
+		// 	const colorMatch = colorRegex.exec(data);
+		// 	const blinkSpeedMatch = blinkSpeedRegex.exec(data);
 
-			// 第一个匹配项
-			if (colorMatch && colorMatch[1]) {
-				// --cursor-color 的值
-				this.setting.cursorColor = colorMatch[1];
-			}
-			if (blinkSpeedMatch && blinkSpeedMatch[1]) {
-				// --cursor-blink-speed 的值
-				this.setting.blinkSpeed = Number(blinkSpeedMatch[1]);
-			}
+		// 	// 第一个匹配项
+		// 	if (colorMatch && colorMatch[1]) {
+		// 		// --cursor-color 的值
+		// 		this.setting.cursorColor = colorMatch[1];
+		// 	}
+		// 	if (blinkSpeedMatch && blinkSpeedMatch[1]) {
+		// 		// --cursor-blink-speed 的值
+		// 		this.setting.blinkSpeed = Number(blinkSpeedMatch[1]);
+		// 	}
 
-			// console.log('读取设置成功:', this.setting, colorMatch, blinkSpeedMatch);
+		// 	// console.log('读取设置成功:', this.setting, colorMatch, blinkSpeedMatch);
 
-			this.saveSettings();
+		// 	this.saveSettings();
 
-		}).catch((error) => {
-			console.error("Failed to read settings:", error);
-		});
+		// }).catch((error) => {
+		// 	console.error("Failed to read settings:", error);
+		// });
 	}
 
 	async saveSettings() {
@@ -660,23 +660,23 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	updateSetting() {
 		if (!this.cursor) return;
-		this.modifyCSS();
+		// this.modifyCSS();
 	}
 
-	async modifyCSS() {
-		let data = await this.app.vault.adapter.read(this.filePath);
+	// async modifyCSS() {
+	// 	let data = await this.app.vault.adapter.read(this.filePath);
 
-		if (!data) {
-			console.error('读取文件失败:', this.filePath);
-			return;
-		}
+	// 	if (!data) {
+	// 		console.error('读取文件失败:', this.filePath);
+	// 		return;
+	// 	}
 
-		// 修改内容（在这里，你可以进行任何修改）
-		let content = data.replace(/(--cursor-color:\s*[^;]+;)/, `--cursor-color: ${this.setting.cursorColor};`);
-		content = content.replace(/(--cursor-blink-speed:\s*[^;]+;)/, `--cursor-blink-speed: ${this.setting.blinkSpeed};`);
+	// 	// 修改内容（在这里，你可以进行任何修改）
+	// 	let content = data.replace(/(--cursor-color:\s*[^;]+;)/, `--cursor-color: ${this.setting.cursorColor};`);
+	// 	content = content.replace(/(--cursor-blink-speed:\s*[^;]+;)/, `--cursor-blink-speed: ${this.setting.blinkSpeed};`);
 
-		await this.app.vault.adapter.write(this.filePath, content);
+	// 	await this.app.vault.adapter.write(this.filePath, content);
 
-		this.customStyle.textContent = content;
-	}
+	// 	this.customStyle.textContent = content;
+	// }
 }

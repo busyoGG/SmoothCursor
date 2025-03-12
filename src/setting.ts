@@ -14,36 +14,36 @@ export class SmoothCursorSettingTab extends PluginSettingTab {
 
         containerEl.empty();
 
-        new Setting(containerEl)
-            .setName("光标颜色")
-            .setDesc("设置光标颜色")
-            .addColorPicker((text) => {
-                text
-                    .setValue(this.plugin.setting.cursorColor)
-                    .onChange(async (value) => {
-                        this.plugin.setting.cursorColor = value;
-                        this.plugin.updateSetting();
-                        await this.plugin.saveSettings();
-                    })
-            });
+        // new Setting(containerEl)
+        //     .setName("光标颜色")
+        //     .setDesc("设置光标颜色")
+        //     .addColorPicker((text) => {
+        //         text
+        //             .setValue(this.plugin.setting.cursorColor)
+        //             .onChange(async (value) => {
+        //                 this.plugin.setting.cursorColor = value;
+        //                 this.plugin.updateSetting();
+        //                 await this.plugin.saveSettings();
+        //             })
+        //     });
 
 
-        new Setting(containerEl)
-            .setName("光标闪烁速度")
-            .setDesc("设置光标闪烁速度")
-            .addText((text) => {
-                text.inputEl.type = "number";
-                text
-                    .setValue(this.plugin.setting.blinkSpeed.toString())
-                    .onChange(async (value) => {
-                        this.plugin.setting.blinkSpeed = Number(value);
-                        this.plugin.updateSetting();
-                        await this.plugin.saveSettings();
-                    })
-            });
+        // new Setting(containerEl)
+        //     .setName("光标闪烁速度")
+        //     .setDesc("设置光标闪烁速度")
+        //     .addText((text) => {
+        //         text.inputEl.type = "number";
+        //         text
+        //             .setValue(this.plugin.setting.blinkSpeed.toString())
+        //             .onChange(async (value) => {
+        //                 this.plugin.setting.blinkSpeed = Number(value);
+        //                 this.plugin.updateSetting();
+        //                 await this.plugin.saveSettings();
+        //             })
+        //     });
 
         new Setting(containerEl)
-            .setName("拖尾开关")
+            .setName("拖尾开关 Trail Enable")
             .setDesc("是否启用拖尾")
             .addToggle((toggle) =>
                 toggle
@@ -55,7 +55,7 @@ export class SmoothCursorSettingTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
-            .setName("拖尾颜色")
+            .setName("拖尾颜色 Trail Color")
             .setDesc("设置拖尾颜色")
             .addColorPicker((text) => {
                 text
@@ -67,8 +67,8 @@ export class SmoothCursorSettingTab extends PluginSettingTab {
             });
 
         new Setting(containerEl)
-            .setName("拖尾速度")
-            .setDesc("设置拖尾更新次数，越大越慢")
+            .setName("拖尾速度 Trail Speed")
+            .setDesc("设置拖尾更新次数，越大越慢 More Bigger,More Slower")
             .addText((text) => {
                 text.inputEl.type = "number";
                 text

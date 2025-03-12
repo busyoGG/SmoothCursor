@@ -12,8 +12,8 @@
 
 > 你可以通过设置面板进行自定义，也可以通过修改 'styles.css' 文件进行自定义。css 文件修改需要重启 obsidian 才能生效。
 
-* 光标颜色（设置面板和 css 文件会自动同步）
-* 光标闪烁速度（设置面板和 css 文件会自动同步）
+* 光标颜色（css）
+* 光标闪烁速度（css）
 * 开关拖尾
 * 拖尾颜色
 * 拖尾速度
@@ -41,8 +41,8 @@ You can enable or disable the trail effect as needed.
 
 > You can customize it through the settings panel, or by modifying the 'styles.css' file.Css file modifications require a restart of Obsidian.
 
-* Cursor color (the settings panel and the CSS file will automatically sync)
-* Cursor blink speed (the settings panel and the CSS file will automatically sync)
+* Cursor color (css)
+* Cursor blink speed (css)
 * Toggle trail effect
 * Trail color
 * Trail speed
