@@ -1,4 +1,4 @@
-import { EditorPosition, MarkdownView, normalizePath, Plugin, View, WorkspaceLeaf } from 'obsidian';
+import { Plugin } from 'obsidian';
 import { SmoothCursorSettingTab } from 'src/setting';
 
 interface SelectionModify extends Selection {
@@ -17,6 +17,7 @@ interface SmoothCursorPluginSettings {
 
 	/** 拖尾颜色 */
 	trailColor: string;
+	trailColorDark: string;
 
 	// /** 光标闪烁速度 */
 	// blinkSpeed: number;
@@ -27,6 +28,7 @@ const DEFAULT_SETTINGS: SmoothCursorPluginSettings = {
 	enableTrail: true,
 	// cursorColor: "#ffffff",
 	trailColor: "#78dce8",
+	trailColorDark: "#78dce8",
 	// blinkSpeed: 1
 };
 
@@ -44,6 +46,7 @@ export default class SmoothCursorPlugin extends Plugin {
 	canvas: HTMLCanvasElement | null;
 
 	cursor: HTMLElement | null;
+	vimText: HTMLElement | null;
 	endOffset: number;
 	endContainerRangeRect: DOMRect;
 
@@ -69,6 +72,7 @@ export default class SmoothCursorPlugin extends Plugin {
 	// filePath: string;
 
 	customStyle: HTMLStyleElement;
+	vimStyle: HTMLStyleElement;
 
 	focus: boolean = true;
 
@@ -110,7 +114,12 @@ export default class SmoothCursorPlugin extends Plugin {
 		this.stopObserving();
 	}
 
+	isVimMode(): boolean {
+		return document.querySelector('.cm-vimCursorLayer') !== null;
+	}
+
 	init() {
+
 		this.editorDom = document.querySelector('.cm-editor') as HTMLElement;
 
 		if (!this.editorDom) {
@@ -125,6 +134,11 @@ export default class SmoothCursorPlugin extends Plugin {
 		this.cursor.id = "smooth-cursor-busyo";
 		this.editorDom.appendChild(this.cursor);
 
+		this.vimText = this.app.workspace.containerEl.createDiv();
+		this.cursor.appendChild(this.vimText);
+
+		this.vimText.classList.add("vim-text");
+
 		//延迟10帧，防止在样式加载完成前执行
 		this.delayedFrames(() => {
 			// 获取所有的 style 标签
@@ -132,6 +146,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 			// 要查找的特定 CSS 规则（例如，查找包含 'color' 的规则）
 			const ruleName = 'smooth-cursor-busyo';
+			const vimText = 'vim-text';
 
 			for (let index = 0; index < styles.length; index++) {
 				let style = styles[index];
@@ -140,7 +155,11 @@ export default class SmoothCursorPlugin extends Plugin {
 				// 检查 CSS 内容是否包含特定的规则
 				if (cssText.includes(ruleName)) {
 					this.customStyle = style;
-					break;
+					// break;
+				}
+
+				if (cssText.includes(vimText)) {
+					this.vimStyle = style;
 				}
 			}
 		}, 10);
@@ -242,9 +261,25 @@ export default class SmoothCursorPlugin extends Plugin {
 	}
 
 
+	/**
+	 * 更新光标坐标
+	 */
 	updateCursor(inputPos: { x: number, y: number, height: number } | null = null) {
 		if (!this.cursor || !this.customStyle) return;
 		// console.trace('Calling stack trace');
+
+		// console.log("鼠标移动");
+
+		// //判断是否是文本，是则移动，不是则不移动
+		// let selection = window.getSelection();
+		// if (selection && selection.rangeCount > 0) {
+		// 	const range = selection.getRangeAt(0); // 获取当前选区
+		// 	const endContainer = range.endContainer;
+		// 	if (endContainer! instanceof Text) {
+		// 		console.log("该节点不是文本节点，不移动");
+		// 		return;
+		// 	}
+		// }
 
 		this.closeSettings = false;
 
@@ -264,6 +299,20 @@ export default class SmoothCursorPlugin extends Plugin {
 			this.cursor.removeClass("noTrans");
 		}
 
+		//vim 模式下方块光标文本更新
+		if (this.isVimMode()) {
+			let str = this.getNextCharAfterCursor();
+			console.log(str);
+			if (str) {
+				this.vimText && (this.vimText.textContent = str.text);
+				this.vimStyle.textContent = (this.vimStyle.textContent as string).replace(/(--vim-font-size:\s*[^;]+;)/, `--vim-font-size: ${str.size};`);
+			} else {
+				this.vimText && (this.vimText.textContent = "");
+			}
+		} else {
+			this.vimText && (this.vimText.textContent = "");
+		}
+
 		// 修改坐标，该部分样式为自动计算，仅用于坐标变化
 		//change position, the style is automatically calculated and is used only for coordinate changes
 		let content = (this.customStyle.textContent as string).replace(/(--cursor-x:\s*[^;]+;)/, `--cursor-x: ${pos.x + scrollX};`);
@@ -271,7 +320,6 @@ export default class SmoothCursorPlugin extends Plugin {
 		content = content.replace(/(--cursor-height:\s*[^;]+;)/, `--cursor-height: ${pos.height};`);
 
 		this.customStyle.textContent = content;
-
 
 		if (this.setting.enableTrail && !this.isScroll) {
 			if (this.lastPos.x != pos.x || this.lastPos.y != pos.y) {
@@ -319,6 +367,30 @@ export default class SmoothCursorPlugin extends Plugin {
 		this.isScroll = false;
 		this.isDomChanged = false;
 		this.isSpanChange = false;
+	}
+
+	getNextCharAfterCursor() {
+		const selection = window.getSelection();
+		if (!selection?.rangeCount) return null;
+
+		const range = selection.getRangeAt(0).cloneRange();
+
+		if (!(range.endContainer instanceof Text) || !range.endContainer.textContent || range.endOffset >= range.endContainer.textContent?.length) return null;
+		// 扩展范围 1 个字符
+		range.setEnd(range.endContainer, range.endOffset + 1);
+
+		// 向上找到一个 Element 节点
+		const element = (range.endContainer.nodeType === 1 ? range.endContainer : range.endContainer.parentElement) as Element;
+
+		let fontSize = "16px";
+		if (element) {
+			fontSize = window.getComputedStyle(element).fontSize;
+		}
+
+		return {
+			text: range.toString().slice(-1),
+			size: fontSize
+		}; // 只取新增字符
 	}
 
 	// 获取当前光标位置的函数
@@ -386,6 +458,11 @@ export default class SmoothCursorPlugin extends Plugin {
 				rect = (range.endContainer as HTMLElement).getBoundingClientRect();
 			}
 
+			// if (range.endContainer.textContent && range.endOffset < range.endContainer.textContent?.length - 1) {
+			// 	let tempRange = range.cloneRange();
+			// 	tempRange.select
+			// }
+
 			// console.log(rect, range.startOffset, range.endOffset, endOffset);
 
 			// 计算光标位置相对于编辑区域
@@ -393,6 +470,7 @@ export default class SmoothCursorPlugin extends Plugin {
 				x: rect.x + window.scrollX - editorDomRect.x,
 				y: rect.y + window.scrollY - editorDomRect.y,
 				height: rect.height,
+				// width: 3
 			};
 		}
 
