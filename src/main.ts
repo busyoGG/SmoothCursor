@@ -1,8 +1,17 @@
-import { Plugin } from 'obsidian';
+import { Editor, Plugin } from 'obsidian';
 import { SmoothCursorSettingTab } from 'src/setting';
+import { Editor as cmEditor } from "codemirror"
+import { EditorView } from "@codemirror/view";
 
 interface SelectionModify extends Selection {
 	modify(alter?: string, direction?: string, granularity?: string): void;
+}
+
+interface cmEditorExtention extends cmEditor {
+	coordsForChar(offset: number): { left: number; top: number; right: number; bottom: number };
+	domAtPos(offset: number): { node: Node; offset: number; precise: boolean; };
+	coordsAtPos(pos: number): { left: number; top: number; right: number; bottom: number };
+	dom: HTMLElement;
 }
 
 interface SmoothCursorPluginSettings {
@@ -47,12 +56,24 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	cursor: HTMLElement | null;
 	vimText: HTMLElement | null;
-	endOffset: number;
-	endContainerRangeRect: DOMRect;
 
-	isMouseMove: boolean = false;
 	isMouseDown: boolean = false;
-	isDomChanged: boolean = false;
+	mouseForX: { down: number, move: number } = { down: 0, move: 0 };
+	mouseForY: { down: number, move: number } = { down: 0, move: 0 };
+	mouseMoveTaget: { down: HTMLElement, move: HTMLElement };
+
+	customStyle: HTMLStyleElement;
+	vimStyle: HTMLStyleElement;
+
+	isScroll: boolean = false;
+
+	isInited: boolean = false;
+
+	focus: boolean = true;
+
+	closeSettings: boolean = false;
+
+	// ----- trail ------
 
 	lastPos: { x: number, y: number, height: number } = { x: 0, y: 0, height: 0 };
 
@@ -61,28 +82,9 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	trailCount: number;
 
-	isScroll: boolean = false;
-
-	isInited: boolean = false;
-
 	isFirstTrail: boolean = true;
 
-	isSpanChange: boolean = false;
-
-	// filePath: string;
-
-	customStyle: HTMLStyleElement;
-	vimStyle: HTMLStyleElement;
-
-	focus: boolean = true;
-
-	closeSettings: boolean = false;
-
 	async onload() {
-
-		// this.filePath = `${this.app.vault.configDir}/plugins/SmoothCursor/styles.css`;  // CSS 文件路径
-
-		// console.log(this.filePath);
 
 		// 设置默认设置
 		await this.loadSettings();
@@ -170,54 +172,45 @@ export default class SmoothCursorPlugin extends Plugin {
 			this.cursor.addClass("show");
 		}
 
-		this.registerDomEvent(this.editorDom, "mousedown", (event) => {
+		this.registerDomEvent(this.editorDom, "mousedown", (evt) => {
 
 			this.isMouseDown = true;
+			this.mouseForX.down = evt.clientX;
+			this.mouseMoveTaget = { down: evt.target as HTMLElement, move: evt.target as HTMLElement };
 
-			const selection = this.editorDom.ownerDocument.getSelection();
-			if (selection && selection.rangeCount > 0) {
-				const range = selection.getRangeAt(0);
-
-				this.endOffset = range.endOffset;
-
-				let endContainerRange = range.cloneRange();
-				endContainerRange.setStart(range.endContainer, range.endOffset);
-				endContainerRange.setEnd(range.endContainer, range.endOffset);
-
-				this.endContainerRangeRect = endContainerRange.getClientRects()[0];
-				if (!this.endContainerRangeRect) {
-					this.endContainerRangeRect = (range.endContainer as Element).getBoundingClientRect();
-				}
-			}
-
-			this.updateCursor();
+			this.mouseForY.down = this.updateCursor()?.y || 0;
 		});
 
 		this.registerDomEvent(this.editorDom, "mousemove", (evt) => {
 			if (this.isMouseDown) {
+				this.mouseMoveTaget.move = evt.target as HTMLElement;
 
-				// clearTimeout(this.delayTimer);
-				this.isMouseMove = true;
-				this.updateCursor();
+				this.mouseForX.move = evt.clientX;
+				this.mouseForY.move = this.updateCursor()?.y || 0;
 			}
 		});
 
 		this.registerDomEvent(this.editorDom, "mouseup", () => {
 
 			this.isMouseDown = false;
-			this.isMouseMove = false;
+			this.updateCursor();
 		});
 
-		this.registerDomEvent(this.editorDom, "keydown", () => {
-			if (!this.isDomChanged) {
-				this.updateCursor();
-			}
+		this.registerDomEvent(this.editorDom, "keydown", (evt) => {
+			let pos = this.updateCursor();
+			// console.log(evt.key);
+
+			// if (evt.key === "v" || evt.key === "V") {
+			// 	this.mouseForX.down = pos?.x || 0;
+			// 	this.mouseForY.down = pos?.y || 0;
+			// } else if (evt.key === "h" || evt.key === "j" || evt.key === "k" || evt.key === "l") {
+			// 	this.mouseForX.move = pos?.x || 0;
+			// 	this.mouseForY.move = pos?.y || 0;
+			// }
 		});
 
 		this.registerDomEvent(this.editorDom, "keyup", () => {
-			if (!this.isDomChanged) {
-				this.updateCursor();
-			}
+			this.updateCursor();
 		});
 
 		this.registerEvent(this.app.workspace.on("resize", () => {
@@ -238,7 +231,7 @@ export default class SmoothCursorPlugin extends Plugin {
 			this.updateCursor();
 		});
 
-		this.lastPos = this.getCursorPosition();
+		this.lastPos = { x: 0, y: 0, height: 0 };
 
 		this.startObserving();
 
@@ -264,31 +257,35 @@ export default class SmoothCursorPlugin extends Plugin {
 	/**
 	 * 更新光标坐标
 	 */
-	updateCursor(inputPos: { x: number, y: number, height: number } | null = null) {
+	updateCursor() {
 		if (!this.cursor || !this.customStyle) return;
-		// console.trace('Calling stack trace');
 
-		// console.log("鼠标移动");
-
-		// //判断是否是文本，是则移动，不是则不移动
-		// let selection = window.getSelection();
-		// if (selection && selection.rangeCount > 0) {
-		// 	const range = selection.getRangeAt(0); // 获取当前选区
-		// 	const endContainer = range.endContainer;
-		// 	if (endContainer! instanceof Text) {
-		// 		console.log("该节点不是文本节点，不移动");
-		// 		return;
-		// 	}
-		// }
+		//判断点击的是文件名还是正文
+		let selection = window.getSelection() as Selection;
+		let node = selection.getRangeAt(0).commonAncestorContainer;
+		let isTitle = false;
+		if (node.nodeType === Node.ELEMENT_NODE) {
+			// 尝试获取元素节点的右下角
+			isTitle = (node as HTMLElement).classList.contains("inline-title");
+		} else if (node.nodeType === Node.TEXT_NODE) {
+			isTitle = (node.parentElement as HTMLElement).classList.contains("inline-title");
+		}
 
 		this.closeSettings = false;
 
-		let pos;
-		if (inputPos) {
-			pos = inputPos;
+		let pos = this.getCursorPosition(isTitle);
+
+		//如果返回的位置为无效位置，不更新光标
+		if (pos.x == -1 && pos.y == -1) {
+			this.focus = false;
+			this.cursor?.removeClass("show");
+			return;
 		} else {
-			pos = this.getCursorPosition();
+			this.focus = true;
+			this.cursor?.addClass("show");
 		}
+
+		// console.log("坐标", pos)
 
 		const scrollX = window.scrollX || document.documentElement.scrollLeft;
 		const scrollY = window.scrollY || document.documentElement.scrollTop;
@@ -301,8 +298,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		//vim 模式下方块光标文本更新
 		if (this.isVimMode()) {
-			let str = this.getNextCharAfterCursor();
-			console.log(str);
+			let str = this.getNextCharAfterCursor(isTitle);
 			if (str) {
 				this.vimText && (this.vimText.textContent = str.text);
 				this.vimStyle.textContent = (this.vimStyle.textContent as string).replace(/(--vim-font-size:\s*[^;]+;)/, `--vim-font-size: ${str.size};`);
@@ -338,143 +334,161 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		this.lastPos = pos;
 
-		if (this.isDomChanged && !this.isMouseMove && this.isSpanChange) {
-			const sel = window.getSelection();
-			if (sel && sel.rangeCount > 0) {
-				const range = sel.getRangeAt(0); // 获取当前选区
-				const startContainer = range.startContainer;
-				const endContainer = range.endContainer;
+		this.isScroll = false;
 
-				// 判断前面是否有内容
-				const canMoveBackward = (startContainer.textContent as string).length > 0 && range.startOffset > 0;
-				// 判断后面是否有内容
-				const canMoveForward = (endContainer.textContent as string).length > 0 && range.endOffset < (endContainer.textContent as string).length;
+		return pos;
+	}
 
-				if (canMoveBackward) {
-					// 如果前面有内容，先向后移一位
-					(sel as SelectionModify).modify("move", "backward", "character");
-					// 然后再向前移一位
-					(sel as SelectionModify).modify("move", "forward", "character");
-				} else if (canMoveForward) {
-					// 如果后面有内容，先向前移一位
-					(sel as SelectionModify).modify("move", "forward", "character");
-					// 然后再向后移一位
-					(sel as SelectionModify).modify("move", "backward", "character");
+	getNextCharAfterCursor(isTitle?: boolean) {
+		if (isTitle) {
+			return null;
+		} else {
+			const editor = this.app.workspace.activeEditor?.editor;
+			const cmView = (editor as Editor & { cm: cmEditor })?.cm as cmEditorExtention; // CM6 的 EditorView 实例
+			// console.log(cmView);
+			if (cmView && editor) {
+				const cursor = editor.getCursor();
+				const doc = cmView.state.doc;
+				const totalLines = doc.lines;
+
+				if (cursor.line + 1 >= totalLines) {
+					// console.log("已经是最后一行");
+				} else {
+					const nextLine = doc.line(cursor.line + 1);
+					const safeCh = Math.min(cursor.ch, nextLine.length);
+					const pos = nextLine.from + safeCh;
+
+					if (pos < nextLine.to) {
+						const char = doc.sliceString(pos, pos + 1);
+						// console.log("字符是：", char);
+
+						// 获取光标位置的 DOM 元素
+						const coords = cmView.coordsAtPos(pos);
+						if (coords) {
+							// 获取光标所在的 DOM 元素
+							const cursorNode = document.elementFromPoint(coords.left, coords.top);
+
+							// 确保我们找到的是文本节点
+							if (cursorNode) {
+								// 获取该节点的字体大小
+								const fontSize = window.getComputedStyle(cursorNode).fontSize;
+								// console.log("当前字体大小是：", fontSize);
+
+								return {
+									text: char,
+									size: fontSize // 返回字体大小作为数字
+								};
+							}
+						}
+					} else {
+						// console.log("已经在该行末尾，不能再取字符");
+						return null;
+					}
 				}
 			}
 		}
-
-		this.isScroll = false;
-		this.isDomChanged = false;
-		this.isSpanChange = false;
-	}
-
-	getNextCharAfterCursor() {
-		const selection = window.getSelection();
-		if (!selection?.rangeCount) return null;
-
-		const range = selection.getRangeAt(0).cloneRange();
-
-		if (!(range.endContainer instanceof Text) || !range.endContainer.textContent || range.endOffset >= range.endContainer.textContent?.length) return null;
-		// 扩展范围 1 个字符
-		range.setEnd(range.endContainer, range.endOffset + 1);
-
-		// 向上找到一个 Element 节点
-		const element = (range.endContainer.nodeType === 1 ? range.endContainer : range.endContainer.parentElement) as Element;
-
-		let fontSize = "16px";
-		if (element) {
-			fontSize = window.getComputedStyle(element).fontSize;
-		}
-
-		return {
-			text: range.toString().slice(-1),
-			size: fontSize
-		}; // 只取新增字符
 	}
 
 	// 获取当前光标位置的函数
-	getCursorPosition() {
-		const selection = document.getSelection();
-		if (selection && selection.rangeCount > 0) {
-			let editorDomRect = this.editorDom.getBoundingClientRect();
+	getCursorPosition(isTitle?: boolean) {
 
-			let range = selection.getRangeAt(0).cloneRange();
+		let editorDomRect = this.editorDom.getBoundingClientRect();
 
-			let startContainer = range.startContainer as HTMLElement;
-			let endContainer = range.endContainer as HTMLElement;
+		if (isTitle) {
+			//点击标题，cm 不更新，单独处理
+			let selection = window.getSelection() as Selection;
+			let range = selection.getRangeAt(0);
+			let rect = range.getClientRects()[0];
+			let dir = this.mouseForX.move <= this.mouseForX.down;
 
-			//计算光标位置
-			if (!this.isMouseMove && !this.isDomChanged) {
-				range.setStart(endContainer, range.endOffset);
-				range.setEnd(endContainer, range.endOffset);
-				// console.log("非选择，非DOM变化", endContainer, this.endContainerRangeRect);
-			} else if (this.endContainerRangeRect) {
-				let rangeClone = range.cloneRange();
-				rangeClone.setStart(endContainer, range.endOffset);
-				rangeClone.setEnd(endContainer, range.endOffset);
+			return {
+				x: rect.x + (dir ? 0 : rect.width) + window.scrollX - editorDomRect.x,
+				y: rect.y + window.scrollY - editorDomRect.y,
+				height: rect.height,
+			}
+		} else {
+			//通过 cm 接口获取光标坐标
+			const editor = this.app.workspace.activeEditor?.editor;
+			const cmView = (editor as Editor & { cm: cmEditor })?.cm as cmEditorExtention; // CM6 的 EditorView 实例
+			// console.log(cmView);
+			if (cmView && editor) {
+				const cursor = editor.getCursor();
+				const offset = cmView.state.doc.line(cursor.line + 1).from + cursor.ch;
+				let rect = cmView.coordsForChar(offset); // 获取 DOMRect
+				if (!rect) {
+					//判断是否表格
+					let selection = window.getSelection() as Selection;
+					let range = selection.getRangeAt(0);
+					let node = range.commonAncestorContainer;
+					let isTable = false;
 
-				let rangeCloneRect = rangeClone.getClientRects()[0];
-				if (!rangeCloneRect) {
-					rangeCloneRect = endContainer.getBoundingClientRect();
-				}
+					let tempNode: Node | null = node;
 
-				if (rangeCloneRect.top > this.endContainerRangeRect.top) {
-					range.setStart(endContainer, range.endOffset);
-					range.setEnd(endContainer, range.endOffset);
-					// console.log('下行', endContainer, rangeCloneRect.top, this.endContainerRangeRect.top);
-				} else {
+					while (tempNode) {
+						if (tempNode.nodeType === Node.ELEMENT_NODE) {
+							// 尝试获取元素节点的右下角
+							isTable = Array.from((tempNode as HTMLElement).classList).some(cls => cls.includes("table"));
+						} else if (tempNode.nodeType === Node.TEXT_NODE) {
+							isTable = Array.from((tempNode.parentElement as HTMLElement).classList).some(cls => cls.includes("table"));
+						}
 
-					rangeClone.setStart(startContainer, range.startOffset);
-					rangeClone.setEnd(startContainer, range.startOffset);
-
-					rangeCloneRect = rangeClone.getClientRects()[0];
-					if (!rangeCloneRect) {
-						rangeCloneRect = startContainer.getBoundingClientRect();
+						if (isTable) {
+							break;
+						} else {
+							tempNode = tempNode.parentNode;
+						}
 					}
 
-					if (rangeCloneRect.top < this.endContainerRangeRect.top) {
-						range.setStart(startContainer, range.startOffset);
-						range.setEnd(startContainer, range.startOffset);
-						// console.log('上行', startContainer, rangeCloneRect.top, this.endContainerRangeRect.top);
+					if (isTable) {
+
+						if ((!this.mouseMoveTaget || this.mouseMoveTaget.down.textContent === this.mouseMoveTaget.move.textContent)
+							&& node.nodeType === Node.TEXT_NODE) {
+							let dir = this.mouseForX.move <= this.mouseForX.down;
+							const tempRange = document.createRange();
+							tempRange.setStart(node, dir ? range.startOffset : range.endOffset);
+							tempRange.setEnd(node, dir ? range.startOffset : range.endOffset);
+							const rect = tempRange.getBoundingClientRect();
+							return {
+								x: rect.x + (dir ? 0 : rect.width) + window.scrollX - editorDomRect.x,
+								y: rect.y + window.scrollY - editorDomRect.y,
+								height: rect.height,
+							}
+						}
+
 					} else {
-						if (rangeClone.endOffset > this.endOffset) {
-							let endContainerLength = endContainer.textContent ? endContainer.textContent.length : 0;
-							let offset = endContainerLength > rangeClone.endOffset ? rangeClone.endOffset : endContainerLength;
-							range.setStart(endContainer, offset);
-							range.setEnd(endContainer, offset);
-							// console.log('同行1', rangeClone.endOffset, this.endOffset, offset);
-						} else {
-							range.setStart(startContainer, rangeClone.startOffset);
-							range.setEnd(startContainer, rangeClone.startOffset);
-							// console.log('同行2', rangeClone.endOffset, this.endOffset);
+						//行尾或者空行需要单独处理
+						const domInfo = cmView.domAtPos(offset);
+						node = domInfo.node;
+
+						if (!node.parentElement?.classList.contains("cm-contentContainer")) {
+							if (node.nodeType === Node.ELEMENT_NODE) {
+								// 尝试获取元素节点的右下角
+								const rects = (node as Element).getClientRects();
+								if (rects.length > 0) {
+									rect = rects[rects.length - 1]; // 返回最后一个可视矩形
+								}
+							} else if (node.nodeType === Node.TEXT_NODE) {
+								const range = document.createRange();
+								range.setStart(node, domInfo.offset);
+								range.setEnd(node, domInfo.offset);
+								const rt = range.getBoundingClientRect();
+								if (rt.width || rt.height) rect = rt;
+							}
 						}
 					}
 				}
+
+				if (rect) {
+					return {
+						x: rect.left + window.scrollX - editorDomRect.x,
+						y: rect.top + window.scrollY - editorDomRect.y,
+						height: rect.bottom - rect.top,
+					};
+				}
 			}
-
-			let rect = range.getClientRects()[0];
-			if (!rect) {
-				rect = (range.endContainer as HTMLElement).getBoundingClientRect();
-			}
-
-			// if (range.endContainer.textContent && range.endOffset < range.endContainer.textContent?.length - 1) {
-			// 	let tempRange = range.cloneRange();
-			// 	tempRange.select
-			// }
-
-			// console.log(rect, range.startOffset, range.endOffset, endOffset);
-
-			// 计算光标位置相对于编辑区域
-			return {
-				x: rect.x + window.scrollX - editorDomRect.x,
-				y: rect.y + window.scrollY - editorDomRect.y,
-				height: rect.height,
-				// width: 3
-			};
 		}
 
-		return { x: 0, y: 0, height: 0 };  // 如果没有有效的选择，返回默认位置
+		return { x: -1, y: -1, height: 0 };  // 如果没有有效的选择，返回无效位置
 	}
 
 	startObserving() {
@@ -491,40 +505,24 @@ export default class SmoothCursorPlugin extends Plugin {
 			for (const mutation of mutations) {
 				if (mutation.type === 'childList') {
 
-					// if (mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0) {
-					// 	changed = true;
-					// 	break; // 只要检测到增删，就退出循环
-					// }
-
 					for (let i = 0; i < mutation.addedNodes.length; i++) {
-						if (mutation.addedNodes[i].nodeName != "BR") {
+						if (mutation.addedNodes[i].nodeName != "BR" && !(mutation.addedNodes[i] as HTMLDivElement).classList?.contains("table-cell-wrapper")) {
 							changed = true;
-							// break;
-							if (mutation.addedNodes[i].nodeName == "SPAN") {
-								this.isSpanChange = true;
-							}
+							break;
 						}
 					}
 
 					for (let i = 0; i < mutation.removedNodes.length; i++) {
-						if (mutation.removedNodes[i].nodeName != "BR") {
+						if (mutation.removedNodes[i].nodeName != "BR" && !(mutation.removedNodes[i] as HTMLDivElement).classList?.contains("table-cell-wrapper")) {
 							changed = true;
-							// break;
-							if (mutation.removedNodes[i].nodeName == "SPAN") {
-								this.isSpanChange = true;
-							}
+							break;
 						}
 					}
 				}
 			}
 
 			if (changed) {
-				this.isDomChanged = true;
-				// setTimeout(() => {
-				// }, 80);
-				this.delayedFrames(() => {
-					this.updateCursor();
-				});
+				this.updateCursor();
 			}
 		});
 
@@ -533,7 +531,7 @@ export default class SmoothCursorPlugin extends Plugin {
 				if (mutation.type === 'childList') {
 
 					for (let i = 0; i < mutation.addedNodes.length; i++) {
-						if (mutation.addedNodes[i].nodeName == "DIV" && (mutation.addedNodes[i] as HTMLDivElement).classList.contains("modal-container")) {
+						if (mutation.addedNodes[i].nodeName == "DIV" && (mutation.addedNodes[i] as HTMLDivElement).classList?.contains("modal-container")) {
 							// console.log("Obsidian 设置面板（模态框）已打开");
 							this.focus = false;
 							document.body.removeClass("caret-hide");
@@ -543,7 +541,7 @@ export default class SmoothCursorPlugin extends Plugin {
 					}
 
 					for (let i = 0; i < mutation.removedNodes.length; i++) {
-						if (mutation.removedNodes[i].nodeName == "DIV" && (mutation.removedNodes[i] as HTMLDivElement).classList.contains("modal-container")) {
+						if (mutation.removedNodes[i].nodeName == "DIV" && (mutation.removedNodes[i] as HTMLDivElement).classList?.contains("modal-container")) {
 							// console.log("Obsidian 设置面板（模态框）已关闭");
 							this.focus = true;
 							document.body.addClass("caret-hide");
@@ -675,7 +673,9 @@ export default class SmoothCursorPlugin extends Plugin {
 	}
 
 
-
+	/**
+	 * 更新拖尾坐标
+	 */
 	updateTrail(lastX: number, lastY: number, x: number, y: number, widthTarget: number, widthOrigin: number) {
 		if (this.cursor === null) return;
 
@@ -702,34 +702,6 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	async loadSettings() {
 		this.setting = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-
-		// this.app.vault.adapter.read(this.filePath).then((data) => {
-		// 	// console.log("Plugin settings:", data);
-		// 	// 正则表达式分别匹配 --cursor-color 和 --cursor-blink-speed 的值
-		// 	const colorRegex = /--cursor-color:\s*([^;]+);/;
-		// 	const blinkSpeedRegex = /--cursor-blink-speed:\s*([^;]+);/;
-
-		// 	// 获取匹配结果
-		// 	const colorMatch = colorRegex.exec(data);
-		// 	const blinkSpeedMatch = blinkSpeedRegex.exec(data);
-
-		// 	// 第一个匹配项
-		// 	if (colorMatch && colorMatch[1]) {
-		// 		// --cursor-color 的值
-		// 		this.setting.cursorColor = colorMatch[1];
-		// 	}
-		// 	if (blinkSpeedMatch && blinkSpeedMatch[1]) {
-		// 		// --cursor-blink-speed 的值
-		// 		this.setting.blinkSpeed = Number(blinkSpeedMatch[1]);
-		// 	}
-
-		// 	// console.log('读取设置成功:', this.setting, colorMatch, blinkSpeedMatch);
-
-		// 	this.saveSettings();
-
-		// }).catch((error) => {
-		// 	console.error("Failed to read settings:", error);
-		// });
 	}
 
 	async saveSettings() {
@@ -738,23 +710,5 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	updateSetting() {
 		if (!this.cursor) return;
-		// this.modifyCSS();
 	}
-
-	// async modifyCSS() {
-	// 	let data = await this.app.vault.adapter.read(this.filePath);
-
-	// 	if (!data) {
-	// 		console.error('读取文件失败:', this.filePath);
-	// 		return;
-	// 	}
-
-	// 	// 修改内容（在这里，你可以进行任何修改）
-	// 	let content = data.replace(/(--cursor-color:\s*[^;]+;)/, `--cursor-color: ${this.setting.cursorColor};`);
-	// 	content = content.replace(/(--cursor-blink-speed:\s*[^;]+;)/, `--cursor-blink-speed: ${this.setting.blinkSpeed};`);
-
-	// 	await this.app.vault.adapter.write(this.filePath, content);
-
-	// 	this.customStyle.textContent = content;
-	// }
 }
