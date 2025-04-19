@@ -24,8 +24,8 @@
 
 ## 已知的问题
 
-* dom 元素的增减变化（即此类变化， '**a**' 变为 'a' 或反过来）会导致拖尾刷新，因为 Selection 在该情况下不会自动更新，所以插件进行了光标的左右移动以触发刷新。
-* 光标从表格文件切换到普通文件的时候可能会定位到编辑区最上层，光标动画可能看起来会有点奇怪。
+* vim 模式下光标定位到标题的时候不是块状光标（因为在纯键盘操作的情况下无法监听到键位，无法进行合理的字符获取，所以直接设置为线型光标）
+* 表格单元如果是非纯文本的情况下会识别为跨单元选取，光标会隐藏
 
 # Smooth Cursor
 
@@ -53,5 +53,6 @@ You can enable or disable the trail effect as needed.
 
 ## Known Issues
 
-* DOM element changes (such as '**a**' becoming 'a' or vice versa) will cause the trail to refresh, because the Selection object will not update automatically when the cursor moves. So, the plugin moves the cursor left and right to trigger a refresh.
-* When the cursor switches from a table file to a regular file, it may locate the cursor at the top of the editing area, which may look odd for the cursor animation.
+* In Vim mode, when the cursor is positioned on a heading, it appears as a line cursor instead of a block cursor (since key events cannot be reliably detected during pure keyboard operation, making it difficult to accurately retrieve characters, a line cursor is used instead).
+
+* If a table cell contains non-plain text, it may be interpreted as a multi-cell selection, causing the cursor to be hidden.
