@@ -1,11 +1,6 @@
 import { Editor, Plugin } from 'obsidian';
 import { SmoothCursorSettingTab } from 'src/setting';
 import { Editor as cmEditor } from "codemirror"
-import { EditorView } from "@codemirror/view";
-
-interface SelectionModify extends Selection {
-	modify(alter?: string, direction?: string, granularity?: string): void;
-}
 
 interface cmEditorExtention extends cmEditor {
 	coordsForChar(offset: number): { left: number; top: number; right: number; bottom: number };
@@ -522,7 +517,9 @@ export default class SmoothCursorPlugin extends Plugin {
 			}
 
 			if (changed) {
-				this.updateCursor();
+				this.delayedFrames(() => {
+					this.updateCursor();
+				});
 			}
 		});
 

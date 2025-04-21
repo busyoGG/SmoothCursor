@@ -1,6 +1,6 @@
 {
 	"name": "smooth-cursor",
-	"version": "2.0.0",
+	"version": "2.0.1",
 	"description": "平滑光标",
 	"main": "main.js",
 	"scripts": {
