@@ -62,15 +62,21 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	isScroll: boolean = false;
 
-	isInited: boolean = false;
-
 	focus: boolean = true;
 
 	closeSettings: boolean = false;
 
+	private events: Partial<{
+		[K in keyof HTMLElementEventMap]: (this: HTMLElement, ev: HTMLElementEventMap[K]) => any;
+	}> = {};
+
+	test: DOMRect;
+
 	// ----- trail ------
 
 	lastPos: { x: number, y: number, height: number } = { x: 0, y: 0, height: 0 };
+
+	lastPosForChangeFile: { x: number, y: number, height: number } = { x: 0, y: 0, height: 0 };
 
 	rectangle: { x: number, y: number, dirX: number, dirY: number, extTarget: number, extOrigin: number } =
 		{ x: 0, y: 0, dirX: 0, dirY: 0, extTarget: 0, extOrigin: 0 };
@@ -81,6 +87,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	async onload() {
 
+		console.log("Smooth Cursor loaded");
 		// 设置默认设置
 		await this.loadSettings();
 
@@ -88,17 +95,20 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		this.app.workspace.onLayoutReady(() => {
 
-			this.app.workspace.on("file-open", (file) => {
-				if (file === null) {
-					this.isInited = false;
-					this.isFirstTrail = true;
-					this.cursor = null;
-					this.canvas = null;
-					this.trailCount = 0;
-				} else if (!this.isInited) {
-					this.init();
+			this.registerEvent(this.app.workspace.on("file-open", (file) => {
+
+				//切换文件的时候清除光标和画布
+				this.uninit();
+
+				if (file !== null) {
+					this.isFirstTrail = false;
+					//增加点延迟，防止动画事件未结束
+					this.delayedFrames(this.init, 10);
+				} else {
+					this.lastPosForChangeFile = { x: 0, y: 0, height: 0 };
+					this.events = {};
 				}
-			});
+			}));
 
 			this.init();
 		});
@@ -109,22 +119,61 @@ export default class SmoothCursorPlugin extends Plugin {
 		this.canvas?.remove();
 
 		this.stopObserving();
+		console.log("Smooth Cursor unloaded")
 	}
 
 	isVimMode(): boolean {
 		return document.querySelector('.cm-vimCursorLayer') !== null;
 	}
 
-	init() {
+	isVisible(elem: HTMLElement) {
+		// 递归检查元素和所有父级是否都可见
+		return !!(elem.offsetParent);
+	}
 
-		this.editorDom = document.querySelector('.cm-editor') as HTMLElement;
+	/**
+	 * 监听事件 防止重复监听
+	 */
+	eventRegister<K extends keyof HTMLElementEventMap>(node: HTMLElement, key: K, func: (this: HTMLElement, ev: HTMLElementEventMap[K]) => any) {
+		let event = this.events[key];
+		if (!event) {
+			event = func as typeof this.events[typeof key];
+			this.events[key] = event;
+		}
+		this.registerDomEvent(node, key, event as (this: HTMLElement, ev: HTMLElementEventMap[K]) => any);
+	}
+
+	uninit() {
+		// console.log("反初始化");
+		this.cursor?.remove();
+		this.canvas?.remove();
+
+		this.isFirstTrail = true;
+		this.cursor = null;
+		this.canvas = null;
+		this.trailCount = 0;
+
+		this.stopObserving();
+	}
+
+	init() {
+		// console.log("初始化")
+		let eles = document.querySelectorAll('.cm-editor');
+		for (let i = 0; i < eles.length; i++) {
+			let el = eles[i] as HTMLElement;
+			if (this.isVisible(el)) {
+				this.editorDom = el;
+				this.test = el.getBoundingClientRect();
+				break;
+			}
+		}
 
 		if (!this.editorDom) {
 			console.error("未打开文档");
 			return;
 		}
 
-		this.isInited = true;
+		// this.isInited = true;
 
 		// 创建一个自定义光标
 		this.cursor = this.app.workspace.containerEl.createDiv({ cls: "smooth-cursor-busyo" });
@@ -167,7 +216,7 @@ export default class SmoothCursorPlugin extends Plugin {
 			this.cursor.addClass("show");
 		}
 
-		this.registerDomEvent(this.editorDom, "mousedown", (evt) => {
+		this.eventRegister(this.editorDom, "mousedown", (evt) => {
 
 			this.isMouseDown = true;
 			this.mouseForX.down = evt.clientX;
@@ -176,7 +225,7 @@ export default class SmoothCursorPlugin extends Plugin {
 			this.mouseForY.down = this.updateCursor()?.y || 0;
 		});
 
-		this.registerDomEvent(this.editorDom, "mousemove", (evt) => {
+		this.eventRegister(this.editorDom, "mousemove", (evt) => {
 			if (this.isMouseDown) {
 				this.mouseMoveTaget.move = evt.target as HTMLElement;
 
@@ -185,26 +234,17 @@ export default class SmoothCursorPlugin extends Plugin {
 			}
 		});
 
-		this.registerDomEvent(this.editorDom, "mouseup", () => {
+		this.eventRegister(this.editorDom, "mouseup", () => {
 
 			this.isMouseDown = false;
 			this.updateCursor();
 		});
 
-		this.registerDomEvent(this.editorDom, "keydown", (evt) => {
+		this.eventRegister(this.editorDom, "keydown", (evt) => {
 			let pos = this.updateCursor();
-			// console.log(evt.key);
-
-			// if (evt.key === "v" || evt.key === "V") {
-			// 	this.mouseForX.down = pos?.x || 0;
-			// 	this.mouseForY.down = pos?.y || 0;
-			// } else if (evt.key === "h" || evt.key === "j" || evt.key === "k" || evt.key === "l") {
-			// 	this.mouseForX.move = pos?.x || 0;
-			// 	this.mouseForY.move = pos?.y || 0;
-			// }
 		});
 
-		this.registerDomEvent(this.editorDom, "keyup", () => {
+		this.eventRegister(this.editorDom, "keyup", () => {
 			this.updateCursor();
 		});
 
@@ -221,12 +261,12 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		// let scroller = document.querySelector('.cm-scroller');
 
-		this.registerDomEvent(this.editorDom.querySelector(".cm-scroller") as HTMLElement, "scroll", () => {
+		this.eventRegister(this.editorDom.querySelector(".cm-scroller") as HTMLElement, "scroll", () => {
 			this.isScroll = true;
 			this.updateCursor();
 		});
 
-		this.lastPos = { x: 0, y: 0, height: 0 };
+		this.lastPos = this.lastPosForChangeFile;
 
 		this.startObserving();
 
@@ -246,6 +286,8 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		//默认隐藏系统光标
 		document.body.addClass("caret-hide");
+
+		this.updateCursor();
 	}
 
 
@@ -328,6 +370,11 @@ export default class SmoothCursorPlugin extends Plugin {
 		}
 
 		this.lastPos = pos;
+		if (this.editorDom.getBoundingClientRect().width !== 0) {
+
+			this.lastPosForChangeFile = pos;
+		}
+		// console.log("光标位置", pos)
 
 		this.isScroll = false;
 
@@ -574,20 +621,18 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	delayedFrames(callback: Function, delay: number = 2) {
 		let frameCount = 0;
-		function run() {
-			// 增加帧计数
+		let self = this;
+
+		const run = () => {
 			frameCount++;
 
-			// 如果已经过了两帧，则执行目标操作
 			if (frameCount === delay) {
-				callback();
+				callback.call(self);
 			} else {
-				// 否则继续请求下一帧
 				requestAnimationFrame(run);
 			}
-		}
+		};
 
-		// 开始请求第一帧
 		requestAnimationFrame(run);
 	}
 
@@ -661,7 +706,9 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		// 动画循环
 		function animate() {
-			if (self.canvas === null) return;
+			if (self.canvas === null) {
+				return;
+			}
 			drawTrail(); // 绘制拖尾
 			requestAnimationFrame(animate); // 继续动画
 		}
