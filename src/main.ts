@@ -1,4 +1,4 @@
-import { Editor, Plugin } from 'obsidian';
+import { Editor, MarkdownFileInfo, MarkdownView, Plugin, WorkspaceLeaf } from 'obsidian';
 import { SmoothCursorSettingTab } from 'src/setting';
 import { Editor as cmEditor } from "codemirror"
 
@@ -43,14 +43,18 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	// ----- 私有变量 -----
 
-	editorDom: HTMLElement;
+	curEditor: MarkdownFileInfo | null;
+
+	fileIndex: { [key: string]: number } = {};
+
+	editorDom: { [key: number]: HTMLElement } = {};
 	observer: MutationObserver | null = null;
 	settingObserver: MutationObserver | null = null;
 
-	canvas: HTMLCanvasElement | null;
+	canvas: { [key: number]: HTMLCanvasElement } = {};
 
-	cursor: HTMLElement | null;
-	vimText: HTMLElement | null;
+	cursor: { [key: number]: HTMLElement } = {};
+	vimText: { [key: number]: HTMLElement } = {};
 
 	isMouseDown: boolean = false;
 	mouseForX: { down: number, move: number } = { down: 0, move: 0 };
@@ -74,16 +78,16 @@ export default class SmoothCursorPlugin extends Plugin {
 
 	// ----- trail ------
 
-	lastPos: { x: number, y: number, height: number } = { x: 0, y: 0, height: 0 };
+	lastPos: { x: number, y: number, height: number }[] = [{ x: 0, y: 0, height: 0 }];
 
-	lastPosForChangeFile: { x: number, y: number, height: number } = { x: 0, y: 0, height: 0 };
+	lastPosForChangeFile: { x: number, y: number, height: number }[] = [{ x: 0, y: 0, height: 0 }];
 
-	rectangle: { x: number, y: number, dirX: number, dirY: number, extTarget: number, extOrigin: number } =
-		{ x: 0, y: 0, dirX: 0, dirY: 0, extTarget: 0, extOrigin: 0 };
+	rectangle: { x: number, y: number, dirX: number, dirY: number, extTarget: number, extOrigin: number }[] =
+		[{ x: 0, y: 0, dirX: 0, dirY: 0, extTarget: 0, extOrigin: 0 }];
 
-	trailCount: number;
+	trailCount: number[] = [];
 
-	isFirstTrail: boolean = true;
+	isFirstTrail: { [key: number]: boolean } = {};
 
 	async onload() {
 
@@ -95,31 +99,83 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		this.app.workspace.onLayoutReady(() => {
 
+			let files = this.getAllOpenFilePaths();
+			let firstFile = this.app.workspace.getActiveFile();
+			if (firstFile) {
+				this.fileIndex[firstFile.path] = Object.keys(this.fileIndex).length;;
+				this.isFirstTrail[0] = true;
+			}
+
 			this.registerEvent(this.app.workspace.on("file-open", (file) => {
 
-				//切换文件的时候清除光标和画布
-				this.uninit();
+				// console.log("打开文件", file)
 
+				//切换文件的时候清除光标和画布
 				if (file !== null) {
-					this.isFirstTrail = false;
+
+					// let curFiles = this.getAllOpenFilePaths();
+					// let diff = files.filter(x => !curFiles.includes(x));
+
+					for (let i = 0; i < files.length; i++) {
+						// console.log("关闭文件", this.fileIndex, files[i])
+						this.uninit(this.fileIndex[files[i]]);
+						delete this.fileIndex[files[i]];
+					}
+
+					files = this.getAllOpenFilePaths();
+
+
+					this.fileIndex[file.path] = Object.keys(this.fileIndex).length;
+
+					// this.isFirstTrail[this.fileIndex[file.path]] = true;
 					//增加点延迟，防止动画事件未结束
-					this.delayedFrames(this.init, 10);
+					this.delayedFrames(() => {
+						this.init(this.fileIndex[file.path]);
+					}, 10)
+					// console.log("重新初始化")
 				} else {
-					this.lastPosForChangeFile = { x: 0, y: 0, height: 0 };
+					this.lastPosForChangeFile = [{ x: 0, y: 0, height: 0 }];
 					this.events = {};
+					this.uninit(0);
+
 				}
 			}));
 
-			this.init();
+			// this.registerEvent(this.app.workspace.on("active-leaf-change", (e) => {
+			// 	console.log(e.)
+			// }));
+
+			// console.log("打开文件")
+
+			this.init(0);
 		});
 	}
 
 	onunload() {
-		this.cursor?.remove();
-		this.canvas?.remove();
+		for (let i = 0; i < Object.keys(this.cursor).length; i++) {
+			this.cursor[i]?.remove();
+		}
+		for (let i = 0; i < Object.keys(this.canvas).length; i++) {
+			this.canvas[i]?.remove();
+		}
 
 		this.stopObserving();
 		console.log("Smooth Cursor unloaded")
+	}
+
+	// 获取所有打开的 Markdown 页面路径
+	getAllOpenFilePaths(): string[] {
+		const leaves = this.app.workspace.getLeavesOfType("markdown");
+		const paths: string[] = [];
+
+		for (const leaf of leaves) {
+			const view = leaf.view;
+			if (view instanceof MarkdownView && view.file) {
+				paths.push(view.file.path);
+			}
+		}
+
+		return paths;
 	}
 
 	isVimMode(): boolean {
@@ -143,30 +199,37 @@ export default class SmoothCursorPlugin extends Plugin {
 		this.registerDomEvent(node, key, event as (this: HTMLElement, ev: HTMLElementEventMap[K]) => any);
 	}
 
-	uninit() {
+	uninit(i: number) {
 		// console.log("反初始化");
-		this.cursor?.remove();
-		this.canvas?.remove();
+		this.cursor[i]?.remove();
+		this.canvas[i]?.remove();
 
-		this.isFirstTrail = true;
-		this.cursor = null;
-		this.canvas = null;
-		this.trailCount = 0;
+		// console.log("移除光标和画布", this.cursor, this.cursor[i], i)
+
+		this.isFirstTrail[i] = true;
+		// this.cursor.splice(i, 1);
+		// this.canvas.splice(i, 1);
+		delete this.cursor[i];
+		delete this.canvas[i];
+		this.trailCount[i] = 0;
 
 		this.stopObserving();
 	}
 
-	init() {
+	init(i: number) {
 		// console.log("初始化")
-		let eles = document.querySelectorAll('.cm-editor');
-		for (let i = 0; i < eles.length; i++) {
-			let el = eles[i] as HTMLElement;
-			if (this.isVisible(el)) {
-				this.editorDom = el;
-				this.test = el.getBoundingClientRect();
-				break;
-			}
-		}
+		let ele = this.app.workspace.getActiveViewOfType(MarkdownView)?.leaf.view.containerEl.querySelector('.cm-editor') as HTMLElement;
+		this.editorDom[i] = ele;
+		this.test = ele.getBoundingClientRect();
+		// let eles = document.querySelectorAll('.cm-editor');
+		// for (let i = 0; i < eles.length; i++) {
+		// 	let el = eles[i] as HTMLElement;
+		// 	if (this.isVisible(el)) {
+		// 		this.editorDom.push(el);
+		// 		this.test = el.getBoundingClientRect();
+		// 		break;
+		// 	}
+		// }
 
 		if (!this.editorDom) {
 			console.error("未打开文档");
@@ -176,14 +239,27 @@ export default class SmoothCursorPlugin extends Plugin {
 		// this.isInited = true;
 
 		// 创建一个自定义光标
-		this.cursor = this.app.workspace.containerEl.createDiv({ cls: "smooth-cursor-busyo" });
-		this.cursor.id = "smooth-cursor-busyo";
-		this.editorDom.appendChild(this.cursor);
+		// for (let i = 0; i < this.editorDom.length; i++) {
+		// 	let cursor = this.app.workspace.containerEl.createDiv({ cls: "smooth-cursor-busyo" });
+		// 	this.cursor.push(cursor);
+		// 	cursor.id = "smooth-cursor-busyo-" + i;
+		// 	this.editorDom[i].appendChild(cursor);
 
-		this.vimText = this.app.workspace.containerEl.createDiv();
-		this.cursor.appendChild(this.vimText);
+		// 	let vimText = this.app.workspace.containerEl.createDiv();
+		// 	this.vimText.push(vimText);
+		// 	cursor.appendChild(vimText);
+		// 	vimText.classList.add("vim-text");
+		// }
 
-		this.vimText.classList.add("vim-text");
+		let cursor = this.app.workspace.containerEl.createDiv({ cls: "smooth-cursor-busyo" });
+		this.cursor[i] = cursor;
+		cursor.id = "smooth-cursor-busyo-" + i;
+		this.editorDom[i].appendChild(cursor);
+
+		let vimText = this.app.workspace.containerEl.createDiv();
+		this.vimText[i] = vimText;
+		cursor.appendChild(vimText);
+		vimText.classList.add("vim-text");
 
 		//延迟10帧，防止在样式加载完成前执行
 		this.delayedFrames(() => {
@@ -210,92 +286,106 @@ export default class SmoothCursorPlugin extends Plugin {
 			}
 		}, 10);
 
-		this.createTrail();
 
 		if (!this.setting.enableTrail) {
-			this.cursor.addClass("show");
+			// for (let i = 0; i < this.cursor.length; i++) {
+			// 	this.cursor[i].addClass("show");
+			// }
+			this.cursor[i]?.addClass("show");
 		}
 
-		this.eventRegister(this.editorDom, "mousedown", (evt) => {
+		// for (let i = 0; i < this.editorDom.length; i++) {
+
+
+		// }
+
+		this.createTrail(i);
+
+		this.eventRegister(this.editorDom[i], "mousedown", (evt) => {
 
 			this.isMouseDown = true;
 			this.mouseForX.down = evt.clientX;
 			this.mouseMoveTaget = { down: evt.target as HTMLElement, move: evt.target as HTMLElement };
 
-			this.mouseForY.down = this.updateCursor()?.y || 0;
+			this.mouseForY.down = this.updateCursor(i)?.y || 0;
 		});
 
-		this.eventRegister(this.editorDom, "mousemove", (evt) => {
+		this.eventRegister(this.editorDom[i], "mousemove", (evt) => {
 			if (this.isMouseDown) {
 				this.mouseMoveTaget.move = evt.target as HTMLElement;
 
 				this.mouseForX.move = evt.clientX;
-				this.mouseForY.move = this.updateCursor()?.y || 0;
+				this.mouseForY.move = this.updateCursor(i)?.y || 0;
 			}
 		});
 
-		this.eventRegister(this.editorDom, "mouseup", () => {
+		this.eventRegister(this.editorDom[i], "mouseup", () => {
 
 			this.isMouseDown = false;
-			this.updateCursor();
+			this.updateCursor(i);
 		});
 
-		this.eventRegister(this.editorDom, "keydown", (evt) => {
-			let pos = this.updateCursor();
+		this.eventRegister(this.editorDom[i], "keydown", (evt) => {
+			let pos = this.updateCursor(i);
 		});
 
-		this.eventRegister(this.editorDom, "keyup", () => {
-			this.updateCursor();
+		this.eventRegister(this.editorDom[i], "keyup", () => {
+			this.updateCursor(i);
 		});
 
 		this.registerEvent(this.app.workspace.on("resize", () => {
 			// this.isResize = true;
-			if (this.canvas) {
-				this.canvas.width = window.innerWidth;
-				this.canvas.height = window.innerHeight;
+			if (this.canvas[i]) {
+				this.canvas[i].width = window.innerWidth;
+				this.canvas[i].height = window.innerHeight;
 			}
 
 			this.isScroll = true;
-			this.updateCursor();
+			this.updateCursor(i);
 		}));
 
 		// let scroller = document.querySelector('.cm-scroller');
 
-		this.eventRegister(this.editorDom.querySelector(".cm-scroller") as HTMLElement, "scroll", () => {
+		this.eventRegister(this.editorDom[i].querySelector(".cm-scroller") as HTMLElement, "scroll", () => {
 			this.isScroll = true;
-			this.updateCursor();
+			this.updateCursor(i);
 		});
 
 		this.lastPos = this.lastPosForChangeFile;
 
-		this.startObserving();
+		this.startObserving(i);
 
 		//检测不在编辑器内
 		this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
 			// console.log(leaf?.view.getViewType());
-			if (leaf && leaf.view.containerEl.contains(this.editorDom)) {
+			if (leaf && leaf.view.containerEl.contains(this.editorDom[i])) {
 				this.focus = true;
 				document.body.addClass("caret-hide");
-				this.cursor?.addClass("show");
+				this.cursor[i]?.addClass("show");
 			} else {
 				this.focus = false;
 				document.body.removeClass("caret-hide");
-				this.cursor?.removeClass("show");
+				this.cursor[i]?.removeClass("show");
 			}
 		}));
+
+
+		this.updateCursor(i);
 
 		//默认隐藏系统光标
 		document.body.addClass("caret-hide");
 
-		this.updateCursor();
 	}
 
 
 	/**
 	 * 更新光标坐标
 	 */
-	updateCursor() {
-		if (!this.cursor || !this.customStyle) return;
+	updateCursor(i: number) {
+		if (!this.cursor[i] || !this.customStyle || this.curEditor != this.app.workspace.activeEditor) {
+			this.curEditor = this.app.workspace.activeEditor;
+			return;
+		}
 
 		//判断点击的是文件名还是正文
 		let selection = window.getSelection() as Selection;
@@ -310,16 +400,16 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		this.closeSettings = false;
 
-		let pos = this.getCursorPosition(isTitle);
+		let pos = this.getCursorPosition(i, isTitle);
 
 		//如果返回的位置为无效位置，不更新光标
 		if (pos.x == -1 && pos.y == -1) {
 			this.focus = false;
-			this.cursor?.removeClass("show");
+			this.cursor[i]?.removeClass("show");
 			return;
 		} else {
 			this.focus = true;
-			this.cursor?.addClass("show");
+			this.cursor[i]?.addClass("show");
 		}
 
 		// console.log("坐标", pos)
@@ -328,22 +418,22 @@ export default class SmoothCursorPlugin extends Plugin {
 		const scrollY = window.scrollY || document.documentElement.scrollTop;
 
 		if (this.isScroll) {
-			this.cursor.addClass("noTrans");
+			this.cursor[i].addClass("noTrans");
 		} else {
-			this.cursor.removeClass("noTrans");
+			this.cursor[i].removeClass("noTrans");
 		}
 
 		//vim 模式下方块光标文本更新
 		if (this.isVimMode()) {
 			let str = this.getNextCharAfterCursor(isTitle);
 			if (str) {
-				this.vimText && (this.vimText.textContent = str.text);
+				this.vimText && (this.vimText[i].textContent = str.text);
 				this.vimStyle.textContent = (this.vimStyle.textContent as string).replace(/(--vim-font-size:\s*[^;]+;)/, `--vim-font-size: ${str.size};`);
 			} else {
-				this.vimText && (this.vimText.textContent = "");
+				this.vimText && (this.vimText[i].textContent = "");
 			}
 		} else {
-			this.vimText && (this.vimText.textContent = "");
+			this.vimText && (this.vimText[i].textContent = "");
 		}
 
 		// 修改坐标，该部分样式为自动计算，仅用于坐标变化
@@ -355,24 +445,25 @@ export default class SmoothCursorPlugin extends Plugin {
 		this.customStyle.textContent = content;
 
 		if (this.setting.enableTrail && !this.isScroll) {
-			if (this.lastPos.x != pos.x || this.lastPos.y != pos.y) {
-				this.updateTrail(this.lastPos.x, this.lastPos.y, pos.x, pos.y, pos.height, this.lastPos.height);
+			if (this.lastPos[i] && (this.lastPos[i].x != pos.x || this.lastPos[i].y != pos.y)) {
+				// console.log("更新轨迹")
+				this.updateTrail(i, this.lastPos[i].x, this.lastPos[i].y, pos.x, pos.y, pos.height, this.lastPos[i].height);
 			}
 		}
 
-		if (this.setting.enableTrail && this.cursor.hasClass("noAni")) {
-			this.cursor.removeClass("noAni");
+		if (this.setting.enableTrail && this.cursor[i].hasClass("noAni")) {
+			this.cursor[i].removeClass("noAni");
 		} else if (!this.setting.enableTrail) {
-			this.cursor.addClass("noAni");
+			this.cursor[i].addClass("noAni");
 			setTimeout(() => {
-				this.cursor?.removeClass("noAni");
+				this.cursor[i]?.removeClass("noAni");
 			}, 80);
 		}
 
-		this.lastPos = pos;
-		if (this.editorDom.getBoundingClientRect().width !== 0) {
+		this.lastPos[i] = pos;
+		if (this.editorDom[i].getBoundingClientRect().width !== 0) {
 
-			this.lastPosForChangeFile = pos;
+			this.lastPosForChangeFile[i] = pos;
 		}
 		// console.log("光标位置", pos)
 
@@ -432,9 +523,9 @@ export default class SmoothCursorPlugin extends Plugin {
 	}
 
 	// 获取当前光标位置的函数
-	getCursorPosition(isTitle?: boolean) {
+	getCursorPosition(i: number, isTitle?: boolean) {
 
-		let editorDomRect = this.editorDom.getBoundingClientRect();
+		let editorDomRect = this.editorDom[i].getBoundingClientRect();
 
 		if (isTitle) {
 			//点击标题，cm 不更新，单独处理
@@ -533,7 +624,7 @@ export default class SmoothCursorPlugin extends Plugin {
 		return { x: -1, y: -1, height: 0 };  // 如果没有有效的选择，返回无效位置
 	}
 
-	startObserving() {
+	startObserving(index: number) {
 		// 获取 Obsidian 的 workspace 主体
 		let root = document.querySelector('.cm-contentContainer');
 
@@ -565,7 +656,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 			if (changed) {
 				this.delayedFrames(() => {
-					this.updateCursor();
+					this.updateCursor(index);
 				});
 			}
 		});
@@ -579,7 +670,7 @@ export default class SmoothCursorPlugin extends Plugin {
 							// console.log("Obsidian 设置面板（模态框）已打开");
 							this.focus = false;
 							document.body.removeClass("caret-hide");
-							this.cursor?.removeClass("show");
+							this.cursor[index]?.removeClass("show");
 							break;
 						}
 					}
@@ -637,64 +728,64 @@ export default class SmoothCursorPlugin extends Plugin {
 	}
 
 	/** 创建canvas */
-	createTrail() {
+	createTrail(i: number) {
 		let self = this;
 		// 创建拖尾画布
 
-		this.canvas = this.editorDom.createEl("canvas", { cls: "smooth-cursor-busyo-canvas" });
-		this.canvas.id = "trail-canvas";
+		this.canvas[i] = this.editorDom[i].createEl("canvas", { cls: "smooth-cursor-busyo-canvas" });
+		this.canvas[i].id = "trail-canvas-" + i;
 
-		const ctx = this.canvas.getContext("2d");
+		const ctx = this.canvas[i].getContext("2d");
 
-		this.canvas.width = this.editorDom.innerWidth;
-		this.canvas.height = this.editorDom.innerHeight;
+		this.canvas[i].width = this.editorDom[i].innerWidth;
+		this.canvas[i].height = this.editorDom[i].innerHeight;
 
 		// 绘制拖尾
 		function drawTrail() {
-			if (self.canvas === null || ctx === null)
+			if (!self.canvas[i] || !self.rectangle[i] || ctx === null)
 				return;
 
-			if (self.cursor && self.trailCount <= 0) {
-				ctx.clearRect(0, 0, self.canvas.width, self.canvas.height);
-				self.focus && !self.closeSettings && self.cursor.addClass("show");
+			if (self.cursor[i] && self.trailCount[i] != undefined && self.trailCount[i] <= 0) {
+				ctx.clearRect(0, 0, self.canvas[i].width, self.canvas[i].height);
+				self.focus && !self.closeSettings && self.cursor[i].addClass("show");
 				return;
 			}
 
-			self.trailCount--;
+			self.trailCount[i]--;
 
-			let ratio = self.trailCount / self.setting.trailStep;
+			let ratio = self.trailCount[i] / self.setting.trailStep;
 
-			let targetX1 = self.rectangle.x - self.rectangle.dirX * 0.15 * Math.max(0, (-0.3 + ratio));
+			let targetX1 = self.rectangle[i].x - self.rectangle[i].dirX * 0.15 * Math.max(0, (-0.3 + ratio));
 			let targetX2 = targetX1;
 
-			let originX1 = self.rectangle.x - self.rectangle.dirX * ratio;
+			let originX1 = self.rectangle[i].x - self.rectangle[i].dirX * ratio;
 			let originX2 = originX1;
 
-			if (self.rectangle.dirX === 3) {
-				targetX1 = self.rectangle.x;
+			if (self.rectangle[i].dirX === 3) {
+				targetX1 = self.rectangle[i].x;
 				targetX2 = targetX1;
 
-				originX1 = self.rectangle.x - self.rectangle.dirX;
+				originX1 = self.rectangle[i].x - self.rectangle[i].dirX;
 				originX2 = originX1;
 
-			} else if (self.rectangle.dirY < 0) {
-				targetX2 = self.rectangle.x - self.rectangle.dirX * 0.05 * Math.max(0, (-0.3 + ratio));
-				originX1 = self.rectangle.x - self.rectangle.dirX * Math.max(0, (ratio - 0.02));
-			} else if (self.rectangle.dirY > 0) {
-				targetX1 = self.rectangle.x - self.rectangle.dirX * 0.05 * Math.max(0, (-0.3 + ratio));
-				originX2 = self.rectangle.x - self.rectangle.dirX * Math.max(0, (ratio - 0.02));
+			} else if (self.rectangle[i].dirY < 0) {
+				targetX2 = self.rectangle[i].x - self.rectangle[i].dirX * 0.05 * Math.max(0, (-0.3 + ratio));
+				originX1 = self.rectangle[i].x - self.rectangle[i].dirX * Math.max(0, (ratio - 0.02));
+			} else if (self.rectangle[i].dirY > 0) {
+				targetX1 = self.rectangle[i].x - self.rectangle[i].dirX * 0.05 * Math.max(0, (-0.3 + ratio));
+				originX2 = self.rectangle[i].x - self.rectangle[i].dirX * Math.max(0, (ratio - 0.02));
 			}
 
-			let heightDiff = self.rectangle.extTarget - self.rectangle.extOrigin;
+			let heightDiff = self.rectangle[i].extTarget - self.rectangle[i].extOrigin;
 
-			ctx.clearRect(0, 0, self.canvas.width, self.canvas.height);
+			ctx.clearRect(0, 0, self.canvas[i].width, self.canvas[i].height);
 
 			ctx.beginPath();
 
-			ctx.moveTo(targetX1, self.rectangle.y + self.rectangle.extTarget);
-			ctx.lineTo(targetX2, self.rectangle.y);
-			ctx.lineTo(originX1, self.rectangle.y - self.rectangle.dirY * ratio);
-			ctx.lineTo(originX2, self.rectangle.y - self.rectangle.dirY * ratio + self.rectangle.extTarget - heightDiff * ratio);
+			ctx.moveTo(targetX1, self.rectangle[i].y + self.rectangle[i].extTarget);
+			ctx.lineTo(targetX2, self.rectangle[i].y);
+			ctx.lineTo(originX1, self.rectangle[i].y - self.rectangle[i].dirY * ratio);
+			ctx.lineTo(originX2, self.rectangle[i].y - self.rectangle[i].dirY * ratio + self.rectangle[i].extTarget - heightDiff * ratio);
 
 			ctx.closePath();
 
@@ -706,7 +797,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		// 动画循环
 		function animate() {
-			if (self.canvas === null) {
+			if (Object.keys(self.canvas).length === 0) {
 				return;
 			}
 			drawTrail(); // 绘制拖尾
@@ -720,28 +811,31 @@ export default class SmoothCursorPlugin extends Plugin {
 	/**
 	 * 更新拖尾坐标
 	 */
-	updateTrail(lastX: number, lastY: number, x: number, y: number, widthTarget: number, widthOrigin: number) {
-		if (this.cursor === null) return;
+	updateTrail(i: number, lastX: number, lastY: number, x: number, y: number, widthTarget: number, widthOrigin: number) {
+		if (!this.cursor[i]) return;
 
-		if (this.isFirstTrail) {
-			this.isFirstTrail = false;
-			this.cursor.addClass("show");
+		if (this.isFirstTrail[i]) {
+			this.isFirstTrail[i] = false;
+			this.cursor[i].addClass("show");
 			return;
 		}
 
 		let dx = x - lastX;
 		let dy = y - lastY;
-		this.rectangle.x = x;
-		this.rectangle.y = y;
-		this.rectangle.dirX = dx == 0 ? 3 : dx;
-		this.rectangle.dirY = dy;
+		if (!this.rectangle[i]) {
+			this.rectangle[i] = { x: 0, y: 0, dirX: 0, dirY: 0, extTarget: 0, extOrigin: 0 };
+		}
+		this.rectangle[i].x = x;
+		this.rectangle[i].y = y;
+		this.rectangle[i].dirX = dx == 0 ? 3 : dx;
+		this.rectangle[i].dirY = dy;
 
-		this.rectangle.extTarget = widthTarget;
-		this.rectangle.extOrigin = widthOrigin;
+		this.rectangle[i].extTarget = widthTarget;
+		this.rectangle[i].extOrigin = widthOrigin;
 
-		this.trailCount = this.setting.trailStep;
+		this.trailCount[i] = this.setting.trailStep;
 
-		this.cursor.removeClass("show");
+		this.cursor[i].removeClass("show");
 	}
 
 	async loadSettings() {
