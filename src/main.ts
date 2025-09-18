@@ -325,45 +325,43 @@ export default class SmoothCursorPlugin extends Plugin {
 			this.updateCursor(i);
 		});
 
-		let compositionStart: boolean;
-		let compositionEnd: boolean;
-		let compositionUpdate: boolean;
 
 		this.eventRegister(this.editorDom[i], "keydown", (evt) => {
-			if (compositionStart && compositionUpdate) {
-				compositionStart = compositionUpdate = false;
-				return;
-			}
+			// if (compositionStart && compositionUpdate) {
+			// 	compositionStart = compositionUpdate = false;
+			// 	return;
+			// }
 			let pos = this.updateCursor(i);
-			console.log("keydown => ", pos)
+			// console.log("keydown => ", pos)
+
 		});
 
 		this.eventRegister(this.editorDom[i], "keyup", () => {
-			if (compositionEnd) {
-				compositionEnd = false;
-				return;
-			}
+			// if (compositionEnd) {
+			// 	compositionEnd = false;
+			// 	return;
+			// }
 			let pos = this.updateCursor(i);
-			console.log("keyup => ", pos)
-			compositionEnd = true;
+			// console.log("keyup => ", pos)
+			// compositionEnd = true;
 		});
 
 		this.eventRegister(this.editorDom[i], "compositionstart", (evt) => {
-			compositionStart = true;
+			// compositionStart = true;
 			let pos = this.updateCursor(i);
-			console.log("compositionupdate => ", pos)
+			// console.log("compositionupdate => ", pos)
 		});
 
 		this.eventRegister(this.editorDom[i], "compositionupdate", (evt) => {
-			compositionUpdate = true;
+			// compositionUpdate = true;
 			let pos = this.updateCursor(i);
-			console.log("compositionupdate => ", pos)
+			// console.log("compositionupdate => ", pos)
 		});
 
 		this.eventRegister(this.editorDom[i], "compositionend", (evt) => {
-			compositionEnd = true;
+			// compositionEnd = true;
 			let pos = this.updateCursor(i);
-			console.log("compositionupdate => ", pos)
+			// console.log("compositionupdate => ", pos)
 		});
 
 		this.registerEvent(this.app.workspace.on("resize", () => {
@@ -417,7 +415,7 @@ export default class SmoothCursorPlugin extends Plugin {
 	updateCursor(i: number) {
 		if (!this.cursor[i] || !this.customStyle || this.curEditor != this.app.workspace.activeEditor) {
 			this.curEditor = this.app.workspace.activeEditor;
-			console.log("未初始化或切换编辑器");
+			// console.log("未初始化或切换编辑器");
 			return;
 		}
 
@@ -436,7 +434,7 @@ export default class SmoothCursorPlugin extends Plugin {
 
 		let pos = this.getCursorPosition(i, isTitle);
 
-		console.log("pos => ", pos)
+		// console.log("pos => ", pos)
 
 		//如果返回的位置为无效位置，不更新光标
 		if (pos.x == -1 && pos.y == -1) {
