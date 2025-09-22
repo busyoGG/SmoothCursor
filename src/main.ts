@@ -310,12 +310,18 @@ export default class SmoothCursorPlugin extends Plugin {
 			this.mouseForY.down = this.updateCursor(i)?.y || 0;
 		});
 
+		let delay = 20;
+		let lastTime = 0;
+		let curTime = 0;
 		this.eventRegister(this.editorDom[i], "mousemove", (evt) => {
-			if (this.isMouseDown) {
+			curTime = Date.now();
+			if (this.isMouseDown && curTime - lastTime > delay) {
 				this.mouseMoveTaget.move = evt.target as HTMLElement;
 
 				this.mouseForX.move = evt.clientX;
 				this.mouseForY.move = this.updateCursor(i)?.y || 0;
+
+				lastTime = curTime;
 			}
 		});
 
@@ -761,86 +767,118 @@ export default class SmoothCursorPlugin extends Plugin {
 		requestAnimationFrame(run);
 	}
 
+	ctx: CanvasRenderingContext2D | null = null;
+
+	lastRect = {
+		x: 0,
+		y: 0,
+		width: 0,
+		height: 0
+	}
+
+
 	/** 创建canvas */
 	createTrail(i: number) {
-		let self = this;
 		// 创建拖尾画布
-
 		this.canvas[i] = this.editorDom[i].createEl("canvas", { cls: "smooth-cursor-busyo-canvas" });
 		this.canvas[i].id = "trail-canvas-" + i;
 
-		const ctx = this.canvas[i].getContext("2d");
+		this.ctx = this.canvas[i].getContext("2d");
 
-		this.canvas[i].width = this.editorDom[i].innerWidth;
-		this.canvas[i].height = this.editorDom[i].innerHeight;
-
-		// 绘制拖尾
-		function drawTrail() {
-			if (!self.canvas[i] || !self.rectangle[i] || ctx === null)
-				return;
-
-			if (self.cursor[i] && self.trailCount[i] != undefined && self.trailCount[i] <= 0) {
-				ctx.clearRect(0, 0, self.canvas[i].width, self.canvas[i].height);
-				self.focus && !self.closeSettings && self.cursor[i].addClass("show");
-				return;
-			}
-
-			self.trailCount[i]--;
-
-			let ratio = self.trailCount[i] / self.setting.trailStep;
-
-			let targetX1 = self.rectangle[i].x - self.rectangle[i].dirX * 0.15 * Math.max(0, (-0.3 + ratio));
-			let targetX2 = targetX1;
-
-			let originX1 = self.rectangle[i].x - self.rectangle[i].dirX * ratio;
-			let originX2 = originX1;
-
-			if (self.rectangle[i].dirX === 3) {
-				targetX1 = self.rectangle[i].x;
-				targetX2 = targetX1;
-
-				originX1 = self.rectangle[i].x - self.rectangle[i].dirX;
-				originX2 = originX1;
-
-			} else if (self.rectangle[i].dirY < 0) {
-				targetX2 = self.rectangle[i].x - self.rectangle[i].dirX * 0.05 * Math.max(0, (-0.3 + ratio));
-				originX1 = self.rectangle[i].x - self.rectangle[i].dirX * Math.max(0, (ratio - 0.02));
-			} else if (self.rectangle[i].dirY > 0) {
-				targetX1 = self.rectangle[i].x - self.rectangle[i].dirX * 0.05 * Math.max(0, (-0.3 + ratio));
-				originX2 = self.rectangle[i].x - self.rectangle[i].dirX * Math.max(0, (ratio - 0.02));
-			}
-
-			let heightDiff = self.rectangle[i].extTarget - self.rectangle[i].extOrigin;
-
-			ctx.clearRect(0, 0, self.canvas[i].width, self.canvas[i].height);
-
-			ctx.beginPath();
-
-			ctx.moveTo(targetX1, self.rectangle[i].y + self.rectangle[i].extTarget);
-			ctx.lineTo(targetX2, self.rectangle[i].y);
-			ctx.lineTo(originX1, self.rectangle[i].y - self.rectangle[i].dirY * ratio);
-			ctx.lineTo(originX2, self.rectangle[i].y - self.rectangle[i].dirY * ratio + self.rectangle[i].extTarget - heightDiff * ratio);
-
-			ctx.closePath();
-
-			ctx.fillStyle = self.setting.trailColor; // 设置填充颜色
-			ctx.fill(); // 填充形状
-			// ctx.strokeStyle = "black"; // 设置描边颜色
-			// ctx.stroke(); // 描边
-		}
-
-		// 动画循环
-		function animate() {
-			if (Object.keys(self.canvas).length === 0) {
-				return;
-			}
-			drawTrail(); // 绘制拖尾
-			requestAnimationFrame(animate); // 继续动画
-		}
-
-		animate(); // 启动动画循环
+		const rect = this.editorDom[i].getBoundingClientRect();
+		this.canvas[i].width = rect.width;
+		this.canvas[i].height = rect.height;
 	}
 
+	// 绘制拖尾
+	drawTrail(i: number) {
+		if (!this.ctx) return;
+
+		// console.log("绘制拖尾", this.trailCount[i])
+
+		this.trailCount[i]--;
+
+		let ratio = this.trailCount[i] / this.setting.trailStep;
+
+		let targetX1 = this.rectangle[i].x - this.rectangle[i].dirX * 0.15 * Math.max(0, (-0.3 + ratio));
+		let targetX2 = targetX1;
+
+		let originX1 = this.rectangle[i].x - this.rectangle[i].dirX * ratio;
+		let originX2 = originX1;
+
+		if (this.rectangle[i].dirX === 3) {
+			targetX1 = this.rectangle[i].x;
+			targetX2 = targetX1;
+
+			originX1 = this.rectangle[i].x - this.rectangle[i].dirX;
+			originX2 = originX1;
+
+		} else if (this.rectangle[i].dirY < 0) {
+			targetX2 = this.rectangle[i].x - this.rectangle[i].dirX * 0.05 * Math.max(0, (-0.3 + ratio));
+			originX1 = this.rectangle[i].x - this.rectangle[i].dirX * Math.max(0, (ratio - 0.02));
+		} else if (this.rectangle[i].dirY > 0) {
+			targetX1 = this.rectangle[i].x - this.rectangle[i].dirX * 0.05 * Math.max(0, (-0.3 + ratio));
+			originX2 = this.rectangle[i].x - this.rectangle[i].dirX * Math.max(0, (ratio - 0.02));
+		}
+
+		let heightDiff = this.rectangle[i].extTarget - this.rectangle[i].extOrigin;
+
+		this.ctx.clearRect(this.lastRect.x, this.lastRect.y, this.lastRect.width, this.lastRect.height);
+
+		this.ctx.beginPath();
+
+		this.ctx.moveTo(targetX1, this.rectangle[i].y + this.rectangle[i].extTarget);
+		this.ctx.lineTo(targetX2, this.rectangle[i].y);
+		this.ctx.lineTo(originX1, this.rectangle[i].y - this.rectangle[i].dirY * ratio);
+		this.ctx.lineTo(originX2, this.rectangle[i].y - this.rectangle[i].dirY * ratio + this.rectangle[i].extTarget - heightDiff * ratio);
+
+		this.ctx.closePath();
+
+		(this.ctx as CanvasRenderingContext2D).fillStyle = this.setting.trailColor; // 设置填充颜色
+		this.ctx.fill(); // 填充形状
+		// ctx.strokeStyle = "black"; // 设置描边颜色
+		// ctx.stroke(); // 描边
+
+		// 计算边界框
+		const minX = Math.min(targetX1, targetX2, originX1, originX2);
+		const maxX = Math.max(targetX1, targetX2, originX1, originX2);
+		const minY = Math.min(
+			this.rectangle[i].y - this.rectangle[i].dirY * ratio,
+			this.rectangle[i].y,
+			this.rectangle[i].y + this.rectangle[i].extTarget,
+			this.rectangle[i].y - this.rectangle[i].dirY * ratio + this.rectangle[i].extTarget - heightDiff * ratio
+		);
+		const maxY = Math.max(
+			this.rectangle[i].y - this.rectangle[i].dirY * ratio,
+			this.rectangle[i].y,
+			this.rectangle[i].y + this.rectangle[i].extTarget,
+			this.rectangle[i].y - this.rectangle[i].dirY * ratio + this.rectangle[i].extTarget - heightDiff * ratio
+		);
+		this.lastRect.x = minX - 50;
+		this.lastRect.y = minY - 50;
+		this.lastRect.width = maxX + 50;
+		this.lastRect.height = maxY + 50;
+	}
+
+	// 动画循环
+	animate(i: number) {
+		if (Object.keys(this.canvas).length === 0) {
+			return;
+		}
+
+		if (!this.canvas[i] || !this.rectangle[i] || this.ctx === null) {
+			return;
+		}
+
+		if (this.cursor[i] && this.trailCount[i] != undefined && this.trailCount[i] <= 0) {
+			this.ctx.clearRect(0, 0, this.canvas[i].width, this.canvas[i].height);
+			this.focus && !this.closeSettings && this.cursor[i].addClass("show");
+			return;
+		}
+
+		this.drawTrail(i);
+		requestAnimationFrame(() => this.animate(i));
+	}
 
 	/**
 	 * 更新拖尾坐标
@@ -870,6 +908,8 @@ export default class SmoothCursorPlugin extends Plugin {
 		this.trailCount[i] = this.setting.trailStep;
 
 		this.cursor[i].removeClass("show");
+
+		this.animate(i);
 	}
 
 	async loadSettings() {
