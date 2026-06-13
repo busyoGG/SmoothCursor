@@ -333,32 +333,18 @@ export default class SmoothCursorPlugin extends Plugin {
 
 
 		this.eventRegister(this.editorDom[i], "keydown", (evt) => {
-			let pos = this.updateCursor(i);
-			// console.log("keydown => ", pos)
-
-		});
-
-		this.eventRegister(this.editorDom[i], "keyup", () => {
-			let pos = this.updateCursor(i);
-			// console.log("keyup => ", pos)
-			// compositionEnd = true;
-		});
-
-		this.eventRegister(this.editorDom[i], "compositionstart", (evt) => {
-			let pos = this.updateCursor(i);
-			// console.log("compositionstart => ", pos)
-		});
-
-		this.eventRegister(this.editorDom[i], "compositionupdate", (evt) => {
 			this.delayedFrames(() => {
 				let pos = this.updateCursor(i);
-				// console.log("compositionupdate => ", pos)
+				// console.log("keydown => ", pos)
 			}, 10);
+
 		});
 
-		this.eventRegister(this.editorDom[i], "compositionend", (evt) => {
-			let pos = this.updateCursor(i);
-			// console.log("compositionend => ", pos)
+		this.eventRegister(this.editorDom[i], "input", (evt) => { 
+			this.delayedFrames(() => {
+				let pos = this.updateCursor(i);
+				// console.log("input => ", pos)
+			}, 10);
 		});
 
 		this.registerEvent(this.app.workspace.on("resize", () => {
